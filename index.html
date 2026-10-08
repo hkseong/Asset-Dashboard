@@ -242,7 +242,7 @@
       <div class="rangebar"><div class="seg" id="rgTicker" role="group" aria-label="종목 차트 기간"></div><span class="hint">드래그로 이동, 휠·핀치로 확대</span></div>
       <div class="legend">
         <button type="button" class="tg" id="tgAvg" aria-pressed="true"><i style="background:var(--avg)"></i>내 평단</button>
-        <button type="button" class="tg" id="tgMarks" aria-pressed="true">▲▼ 매수·매도</button>
+        <button type="button" class="tg" id="tgMarks" aria-pressed="true">▲ 매수 ▼ 매도</button>
       </div>
     </section>
 
@@ -515,7 +515,6 @@ function applyRange(chart, lastTime, key) {
   const from = new Date(new Date(lastTime + 'T00:00:00Z').getTime() - r[2] * 864e5).toISOString().slice(0, 10);
   try { ts.setVisibleRange({ from, to: lastTime }); } catch (e) { ts.fitContent(); }
 }
-const FLOW_MIN = 50000; // 봉 하나 기준 순매수·순매도가 이 금액 이상일 때만 핀 표시
 const PALETTE = ['#3b6fe0', '#e0573e', '#f2a60f', '#2fa37a', '#8a5cf0', '#e04f9a', '#22a3c4', '#b07d3a'];
 
 function baseChart(el) {
@@ -672,19 +671,6 @@ function renderTotal() {
   sVal.setData(toPeriodEnd(ser.map(s => ({ time: s.time, value: s.val })), view.tfT, dates));
   sCost.setData(toPeriodEnd(ser.map(s => ({ time: s.time, value: s.cost })), view.tfT, dates));
 
-  // 투입·회수 핀: 봉 단위로 순매수 합산
-  const key = view.tfT === 'D' ? (d => d) : groupKeys(dates, view.tfT);
-  const net = new Map();
-  ser.forEach(s => { const t = key(s.time); net.set(t, (net.get(t) || 0) + s.buy - s.sell); });
-  const man = v => (Math.abs(v) >= 1e8 ? (Math.abs(v) / 1e8).toFixed(1) + '억' : Math.round(Math.abs(v) / 1e4) + '만');
-  // 일봉은 핀이 촘촘해서 10만 원 이상만 점으로, 주·월·년봉은 5만 원 이상을 금액과 함께
-  const daily = view.tfT === 'D', minFlow = daily ? FLOW_MIN * 2 : FLOW_MIN;
-  const pins = !view.flows ? [] : [...net].filter(([, v]) => Math.abs(v) >= minFlow).map(([t, v]) => ({
-    time: t, position: v > 0 ? 'belowBar' : 'aboveBar', shape: 'circle', color: css('--flow'), size: daily ? 0.5 : 0.6,
-    text: daily ? '' : (v > 0 ? '+' : '−') + man(v),
-  }));
-  sPnl.setMarkers(isPnl ? pins : []);
-  sVal.setMarkers(isPnl ? [] : pins);
   axTotal.set(toCandles(pnl, view.tfT).map(b => b.time), view.tfT);
   applyRange(totalChart, dates[dates.length - 1], view.rgT);
 
@@ -696,8 +682,7 @@ function renderTotal() {
   $('totalLegend').innerHTML = (isPnl
     ? '<span>캔들: 누적 손익</span>'
     : '<span><i style="background:var(--total)"></i>평가액</span><span><i style="background:var(--sub)"></i>매입금액</span>')
-    + `<button type="button" class="tg" id="tgFlows" aria-pressed="${view.flows}"><i style="background:var(--flow);height:8px;width:8px;border-radius:50%"></i>투입·회수</button>`;
-  $('tgFlows').onclick = () => { view.flows = !view.flows; saveView(); renderTotal(); };
+;
 }
 
 function renderTable() {
@@ -824,8 +809,8 @@ function showTicker(code) {
     const t = key(near); const a = (agg[t] ??= { b: 0, s: 0 }); a.b += m.b; a.s += m.s;
   });
   const markers = !view.marks ? [] : Object.entries(agg).sort(([a], [b]) => a < b ? -1 : 1).flatMap(([t, m]) => [
-    ...(m.b ? [{ time: t, position: 'belowBar', shape: 'arrowUp', color: css('--up'), text: qty(+m.b.toFixed(6)) }] : []),
-    ...(m.s ? [{ time: t, position: 'aboveBar', shape: 'arrowDown', color: css('--down'), text: qty(+m.s.toFixed(6)) }] : []),
+    ...(m.b ? [{ time: t, position: 'belowBar', shape: 'arrowUp', color: css('--up'), text: '' }] : []),
+    ...(m.s ? [{ time: t, position: 'aboveBar', shape: 'arrowDown', color: css('--down'), text: '' }] : []),
   ]);
   candle.setMarkers(isCandle ? markers : []);
   closeLine.setMarkers(isCandle ? [] : markers);
