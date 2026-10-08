@@ -138,6 +138,26 @@
   .xprev .it small { color: var(--sub); }
   .xprev h5 { margin: 12px 0 4px; font-size: 12px; color: var(--sub); font-weight: 500; }
   .xprev input { font-size: 14px; padding: 6px 8px; width: 110px; }
+  .sm { display: none; }
+  .mlist { display: none; }
+  @media (max-width: 560px) {
+    .lg { display: none; } .sm { display: inline; }
+    .rangebar .hint { display: none; }
+    /* 표 대신 카드형 줄 */
+    #holdWrap .tablewrap, #realWrap table { display: none; }
+    .mlist { display: block; }
+    .mrow { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+    .mrow:last-child { border-bottom: 0; }
+    .mrow .l { min-width: 0; }
+    .mrow .r { text-align: right; flex: none; }
+    .mrow .nm { font-size: 15px; font-weight: 600; }
+    .mrow .nm small { color: var(--sub); font-weight: 400; font-size: 11px; margin-left: 5px; }
+    .mrow .sub { font-size: 12px; color: var(--sub); margin-top: 2px; }
+    .mrow .v { font-size: 15px; font-weight: 600; }
+    .mrow .badge { margin-left: 5px; }
+    .mrow .up, .mtotal .up { color: var(--up); } .mrow .down, .mtotal .down { color: var(--down); } /* 손익 색이 회색에 묻히지 않게 */
+    .mtotal { display: flex; justify-content: space-between; padding: 12px 0 2px; font-weight: 650; border-top: 2px solid var(--line); }
+  }
   td .split { font-size: 11px; color: var(--sub); margin-top: 1px; font-weight: 400; line-height: 1.35; }
   .foot span + span::before { content: ' · '; }
   @media (max-width: 560px) { .foot span { display: block; line-height: 1.7; } .foot span + span::before { content: none; } }
@@ -287,8 +307,8 @@
       <div class="rangebar"><div class="seg" id="rgTicker" role="group" aria-label="종목 차트 기간"></div><span class="hint">드래그로 이동, 휠·핀치로 확대</span></div>
       <div class="legend">
         <div class="seg" id="kstartSeg" role="group" aria-label="차트 시작 시점"></div>
-        <button type="button" class="tg" id="tgAvg" aria-pressed="true"><i style="background:var(--avg)"></i>내 평단</button>
-        <button type="button" class="tg" id="tgMarks" aria-pressed="true">▲ 매수 ▼ 매도</button>
+        <button type="button" class="tg" id="tgAvg" aria-pressed="true"><i style="background:var(--avg)"></i><span class="lg">내 평단</span><span class="sm">평단</span></button>
+        <button type="button" class="tg" id="tgMarks" aria-pressed="true"><span class="lg">▲ 매수 ▼ 매도</span><span class="sm">▲▼ 매매</span></button>
       </div>
     </section>
 
@@ -302,6 +322,7 @@
             <tbody id="rows"></tbody>
           </table>
         </div>
+        <div class="mlist" id="rowsM"></div>
       </div>
       <div class="tablewrap" id="realWrap" hidden>
         <table>
@@ -309,6 +330,7 @@
           <tbody id="realRows"></tbody>
           <tfoot id="realFoot"></tfoot>
         </table>
+        <div class="mlist" id="realM"></div>
         <div class="note">일부만 판 종목은 판 수량만큼의 손익입니다. 원화 기준이라 해외 종목은 환율 변동이 포함됩니다.</div>
       </div>
     </section>
@@ -382,7 +404,7 @@
 <script>
 // 앱을 열면 항상 맨 위부터 (이전 스크롤 위치 복원 끔)
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-const BUILD = '2026.10.09 01:26'; // 화면 하단 버전 표시 + 새 버전 감지용
+const BUILD = '2026.10.09 01:36'; // 화면 하단 버전 표시 + 새 버전 감지용
 const APP_NAME = 'Portfolio'; // 사이트 이름 (여기만 바꾸면 됨, <title>도 같이)
 document.querySelectorAll('.appname').forEach(e => e.textContent = APP_NAME);
 
@@ -845,7 +867,7 @@ function renderTotal() {
     ? `누적 손익 <span class="${cls(nowPnl)}">${signed(nowPnl)}원</span> (평가손익 + 실현손익 + 배당·이자, 돈을 넣고 빼도 안 변함)`
     : '평가액과 매입금액의 간격이 평가손익';
   $('totalLegend').innerHTML = isPnl
-    ? '<span>캔들: 누적 손익</span><span style="margin-left:6px">같은 날 같은 금액으로 지수를 샀다면</span>'
+    ? '<span class="lg">캔들: 누적 손익</span><span class="lg" style="margin-left:6px">같은 날 같은 금액으로 지수를 샀다면</span><span class="sm">지수 비교</span>'
       + BENCH.filter(([c]) => bench[c]).map(([code, name, , color]) => `<button type="button" class="tg bench" data-b="${code}" aria-pressed="${!!view.bench[code]}">`
         + `<i style="background:${color}"></i>${name}${view.bench[code] && benchNow[code] != null ? ` <span class="${cls(benchNow[code])}">${signed(benchNow[code])}</span>` : ''}</button>`).join('')
     : '<span><i style="background:var(--total)"></i>평가액</span><span><i style="background:var(--sub)"></i>매입금액</span>';
@@ -967,6 +989,15 @@ function renderHoldTab() {
   const sum = rows.reduce((s, a) => ({ sell: s.sell + a.sellK, cost: s.cost + a.soldCost, r: s.r + a.realized }), { sell: 0, cost: 0, r: 0 });
   $('realFoot').innerHTML = rows.length ? `<tr><td>합계 ${rows.length}종목</td><td>${won(sum.sell)}</td><td>${won(sum.cost)}</td>
     <td class="${cls(sum.r)}">${signed(sum.r)}</td><td class="${cls(sum.r)}">${pct(sum.cost ? sum.r / sum.cost : 0)}</td><td></td></tr>` : '';
+  $('realM').innerHTML = rows.map(a => `
+    <div class="mrow" data-code="${esc(a.code)}">
+      <div class="l"><div class="nm">${esc(label(a.code))}<span class="badge">${a.held ? '일부 매도' : '정리'}</span>${view.f === '전체' ? `<small>${[...a.accts].join('·')}</small>` : ''}</div>
+        <div class="sub">${ymd(a.first)} ~ ${ymd(a.lastSell)}</div></div>
+      <div class="r"><div class="v ${cls(a.realized)}">${signed(a.realized)}원</div><div class="sub ${cls(a.r)}">${pct(a.r)}</div><div class="sub">매도 ${won(a.sellK)}원</div></div>
+    </div>`).join('') + (rows.length ? `<div class="mtotal"><span>합계 ${rows.length}종목</span><span class="${cls(sum.r)}">${signed(sum.r)}원 (${pct(sum.cost ? sum.r / sum.cost : 0)})</span></div>` : '<div class="note">판 종목이 없습니다</div>');
+  document.querySelectorAll('#realM .mrow').forEach(el => el.onclick = () => {
+    if (S.px[el.dataset.code]) { showTicker(el.dataset.code); $('chartTicker').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+  });
   document.querySelectorAll('#realRows tr[data-code]').forEach(tr => tr.onclick = () => {
     if (S.px[tr.dataset.code]) { showTicker(tr.dataset.code); $('chartTicker').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
   });
@@ -988,6 +1019,21 @@ function renderTable() {
       <td>${qty(h.q)}</td><td>${money(h.avgN, h.ccy)}</td><td>${money(h.price, h.ccy)}</td>
       <td>${won(h.val)}</td><td class="${cls(h.pl)}">${signed(h.pl)}</td><td class="${cls(h.r)}">${pct(h.r)}${fxSplit(h)}</td>
     </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--sub)">보유 종목이 없습니다</td></tr>';
+  // 폰: 카드형 줄 (왼쪽 종목·수량·평단 / 오른쪽 평가액·손익·주가·환율)
+  $('rowsM').innerHTML = v.holdings.map(h => {
+    let split = '';
+    if (h.ccy === 'USD' && h.avgN) { const px = h.price / h.avgN - 1, fx = (1 + h.r) / (1 + px) - 1, p1 = n => (n > 0 ? '+' : '') + (n * 100).toFixed(1) + '%';
+      split = `<div class="sub">주가 <span class="${cls(px)}">${p1(px)}</span> · 환율 <span class="${cls(fx)}">${p1(fx)}</span></div>`; }
+    return `<div class="mrow" data-code="${esc(h.code)}">
+      <div class="l"><div class="nm">${esc(label(h.code))}${view.f === '전체' ? `<small>${[...h.accts].join('·')}</small>` : ''}</div>
+        <div class="sub">${qty(h.q)}주 · 평단 ${money(h.avgN, h.ccy)}</div><div class="sub">현재가 ${money(h.price, h.ccy)}</div></div>
+      <div class="r"><div class="v">${won(h.val)}원</div><div class="sub ${cls(h.pl)}">${signed(h.pl)} (${pct(h.r)})</div>${split}</div>
+    </div>`;
+  }).join('') || '<div class="note">보유 종목이 없습니다</div>';
+  document.querySelectorAll('#rowsM .mrow').forEach(el => el.onclick = () => {
+    showTicker(el.dataset.code);
+    $('chartTicker').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
   document.querySelectorAll('#rows tr[data-code]').forEach(tr => tr.onclick = () => {
     showTicker(tr.dataset.code);
     $('chartTicker').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1082,7 +1128,7 @@ function showTicker(code) {
   const ccy = info?.ccy || S.tick[code]?.ccy || 'KRW';
   tickerChart.applyOptions({ localization: { priceFormatter: p => ccy === 'USD' ? usd(p) : won(p) } });
 
-  seg($('kstartSeg'), [['mine', '내 매수부터'], ['full', '상장 이후']], view.kstart, k => { view.kstart = k; saveView(); showTicker(view.code); });
+  seg($('kstartSeg'), [['mine', matchMedia('(max-width: 560px)').matches ? '매수부터' : '내 매수부터'], ['full', '상장 이후']], view.kstart, k => { view.kstart = k; saveView(); showTicker(view.code); });
   const full = view.kstart === 'full';
   const src = full && PXFULL[code] ? { ...PXFULL[code], ...(S.px[code] || {}) } : (S.px[code] || {});
   const mk = info?.marks || {};
