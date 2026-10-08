@@ -398,6 +398,14 @@ function compute(raw) {
         m.s += x.q; fl.sell += (x.a - x.fee - x.tax) * fxT;
         C(x.acct)[x.ccy] += x.a - x.fee - x.tax;
       }
+    } else if (x.t === '평단보정') {
+      // 증권사 평단으로 맞춤. 줄어든(늘어난) 원가만큼 실현손익으로 옮겨서 누적 손익은 그대로 유지
+      const p = pos[x.acct + '|' + x.code];
+      if (p && p.q > EPS && x.p > 0) {
+        const newN = p.q * x.p, newK = p.costN ? p.costK * newN / p.costN : newN, dK = newK - p.costK;
+        if (p.sellK) { p.realized += dK; p.soldCost -= dK; }
+        p.costN = newN; p.costK = newK;
+      }
     } else if (['입금', '이자', '배당', '분배금'].includes(x.t)) C(x.acct)[x.ccy] += x.a;
     else if (['출금', '세금'].includes(x.t)) C(x.acct)[x.ccy] -= x.a;
     // 문자로 받은 증권사 실제 잔액이 있으면 그 값으로 예수금을 맞춤 (누적 오차 제거)
@@ -1053,30 +1061,33 @@ function heldIn(acct, code) {
 }
 
 function drawForm(resetCode) {
-  seg($('fType'), ['매수', '매도', '입금', '출금', '배당'].map(x => [x, x]), F.t, t => { F.t = t; drawForm(true); });
+  seg($('fType'), ['매수', '매도', '입금', '출금', '배당', '평단보정'].map(x => [x, x]), F.t, t => { F.t = t; drawForm(true); });
   seg($('fAcct'), ['ISA', '종합', 'CMA'].map(x => [x, x === '종합' ? '종합(해외)' : x]), F.acct, a => { F.acct = a; drawForm(true); });
-  const trade = F.t === '매수' || F.t === '매도';
+  const fix = F.t === '평단보정';
+  const trade = F.t === '매수' || F.t === '매도' || fix;
   $('tradeFields').hidden = !trade;
   $('cashFields').hidden = trade;
+  // 평단보정은 종목 + 평단만 입력
+  [$('fQty'), $('fFee')].forEach(el => el.closest('.row').style.display = fix ? 'none' : '');
   $('fAmt').previousElementSibling.textContent = F.t === '배당' ? '금액 (원, 세후)' : '금액 (원)';
 
   if (trade && resetCode) {
     let codes = Object.keys(S.tick).filter(c => !c.startsWith('_'));
-    if (F.t === '매도') codes = codes.filter(c => heldIn(F.acct, c) > 0);
+    if (F.t === '매도' || fix) codes = codes.filter(c => heldIn(F.acct, c) > 0);
     // 이 계좌 보유 종목 먼저, 그다음 이 계좌에서 거래했던 종목, 나머지
     const rank = c => heldIn(F.acct, c) > 0 ? 0 : S.pos[F.acct + '|' + c] ? 1 : 2;
     codes.sort((a, b) => rank(a) - rank(b) || label(a).localeCompare(label(b), 'ko'));
     $('fCode').innerHTML = codes.map(c => `<option value="${esc(c)}">${esc(label(c))}${heldIn(F.acct, c) > 0 ? ` (보유 ${qty(heldIn(F.acct, c))})` : ''}</option>`).join('')
       + (F.t === '매수' ? `<option value="${NEW}">+ 새 종목 추가</option>` : '');
-    if (!codes.length && F.t === '매도') $('fCode').innerHTML = '<option value="">이 계좌에 보유 종목이 없습니다</option>';
+    if (!codes.length && (F.t === '매도' || fix)) $('fCode').innerHTML = '<option value="">이 계좌에 보유 종목이 없습니다</option>';
   }
   const isNew = trade && $('fCode').value === NEW;
   $('newTk').hidden = !isNew;
   seg($('nCcy'), [['KRW', '원화'], ['USD', '달러']], F.nccy, c => { F.nccy = c; drawForm(false); });
   const ccy = isNew ? F.nccy : (S.tick[$('fCode').value]?.ccy || 'KRW');
-  $('fxRow').style.visibility = ccy === 'USD' ? 'visible' : 'hidden';
+  $('fxRow').style.visibility = ccy === 'USD' && !fix ? 'visible' : 'hidden';
   if (ccy === 'USD' && !$('fFx').value) $('fFx').value = S.fx ? S.fx.toFixed(1) : '';
-  $('fPriceLb').textContent = ccy === 'USD' ? '단가 ($)' : '단가 (원)';
+  $('fPriceLb').textContent = fix ? (ccy === 'USD' ? '증권사 앱 평단 ($)' : '증권사 앱 평단 (원)') : ccy === 'USD' ? '단가 ($)' : '단가 (원)';
   $('fFeeLb').textContent = ccy === 'USD' ? '수수료 ($)' : '수수료 (원)';
   updateSum();
 }
@@ -1087,6 +1098,11 @@ function currentCcy() {
 }
 
 function updateSum() {
+  if (F.t === '평단보정') {
+    const code = $('fCode').value, p = S.pos[F.acct + '|' + code], np = num($('fPrice').value), ccy = currentCcy();
+    $('fSum').innerHTML = p && p.q ? `현재 평단 <b>${money(p.costN / p.q, ccy)}</b>${np ? ` → <b>${money(np, ccy)}</b>에 맞춤` : ''}` : '';
+    return;
+  }
   const trade = F.t === '매수' || F.t === '매도';
   if (!trade) { const a = num($('fAmt').value); $('fSum').innerHTML = a ? `<b>${won(a)}원</b> ${F.t}` : ''; return; }
   const q = num($('fQty').value), p = num($('fPrice').value), fee = num($('fFee').value), ccy = currentCcy();
@@ -1107,7 +1123,12 @@ $('tradeForm').addEventListener('submit', async ev => {
   let ticker = null;
   try {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(t.d)) throw new Error('날짜를 입력하세요.');
-    if (trade) {
+    if (F.t === '평단보정') {
+      const code = $('fCode').value;
+      if (!code) throw new Error('종목을 선택하세요.');
+      Object.assign(t, { code, name: S.tick[code]?.name || code, p: num($('fPrice').value), q: 0, ccy: S.tick[code]?.ccy || 'KRW' });
+      if (t.p <= 0) throw new Error('증권사 앱에 보이는 평단을 입력하세요.');
+    } else if (trade) {
       let code = $('fCode').value;
       if (!code) throw new Error('종목을 선택하세요.');
       if (code === NEW) {
@@ -1141,7 +1162,7 @@ $('tradeForm').addEventListener('submit', async ev => {
 function renderRecent() {
   const rows = S.trades.filter(x => x.row).sort((a, b) => b.row - a.row).slice(0, 8);
   $('recent').innerHTML = rows.map(x => {
-    const what = x.code ? `${esc(label(x.code))} ${qty(x.q)}주 × ${money(x.p, x.ccy)}` : `${won(x.a)}원`;
+    const what = x.t === '평단보정' ? `${esc(label(x.code))} 평단 → ${money(x.p, x.ccy)}` : x.code ? `${esc(label(x.code))} ${qty(x.q)}주 × ${money(x.p, x.ccy)}` : `${won(x.a)}원`;
     return `<div class="it"><span>${x.d} · ${x.acct} · ${x.t} · ${what}${x.memo.startsWith('폼입력') ? '' : ' <small style="color:var(--sub)">(가져온 내역)</small>'}</span>
       <button type="button" data-row="${x.row}">삭제</button></div>`;
   }).join('');
