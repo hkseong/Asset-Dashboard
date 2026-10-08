@@ -39,9 +39,9 @@
   }
   main { max-width: 1000px; margin: 0 auto; padding: 16px 16px 24px; }
   /* 아이폰 홈 화면 앱으로 열면 상태바 아래 블러(리퀴드 글라스)가 첫 줄을 가려서 조금 내림 */
-  /* 홈 화면 앱처럼 상태바가 화면을 덮을 때(안전 영역 > 0)만 블러 피하려고 30px 더 내림. 사파리·맥은 안전 영역이 0이라 그대로 */
+  /* 홈 화면 앱처럼 상태바가 화면을 덮을 때(안전 영역 > 0)만 블러 피하려고 34px 더 내림. 사파리·맥은 안전 영역이 0이라 그대로 */
   /* 아이폰 상태바 블러(리퀴드 글라스)를 피하려고 어디서 열든 위를 넉넉히 비움 */
-  main { padding-top: calc(30px + min(env(safe-area-inset-top, 0px), 30px)); }
+  main { padding-top: calc(34px + min(env(safe-area-inset-top, 0px), 30px)); }
   section { background: var(--panel); border-radius: 14px; padding: 18px; margin-bottom: 14px; min-width: 0; }
   .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .head .tools { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -130,6 +130,13 @@
   .lastsms { font-size: 12px; color: var(--sub); margin-top: 4px; }
   .lastsms:empty { display: none; }
   @media (max-width: 560px) { .stats { grid-template-columns: repeat(2, 1fr); row-gap: 12px; } }
+  .xprev { font-size: 13px; margin-bottom: 12px; }
+  .xprev .sumline { display: flex; gap: 6px 14px; flex-wrap: wrap; margin-bottom: 8px; }
+  .xprev .sumline b { font-weight: 650; }
+  .xprev .it { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .xprev .it small { color: var(--sub); }
+  .xprev h5 { margin: 12px 0 4px; font-size: 12px; color: var(--sub); font-weight: 500; }
+  .xprev input { font-size: 14px; padding: 6px 8px; width: 110px; }
   td .split { font-size: 11px; color: var(--sub); margin-top: 1px; font-weight: 400; line-height: 1.35; }
   .foot span + span::before { content: ' · '; }
   @media (max-width: 560px) { .foot span { display: block; line-height: 1.7; } .foot span + span::before { content: none; } }
@@ -308,7 +315,7 @@
     <section>
       <div class="head"><h2>예수금</h2><span id="cashTotal" style="font-size:13px;color:var(--sub)"></span></div>
       <div class="cash" id="cash"></div>
-      <div class="note">예수금은 투자 성과 계산에서 빠져 있습니다. 해외 달러 예수금은 달러 배당금이 거래내역에 금액 없이 찍혀서 소액 오차가 있을 수 있습니다.</div>
+      <div class="note">예수금은 투자 성과 계산에서 빠져 있습니다. 원화·달러 모두 증권사 문자에 찍힌 잔액으로 자동 보정됩니다.</div>
     </section>
   </div>
 </main>
@@ -317,8 +324,19 @@
 
 <dialog id="dlg" aria-labelledby="dlgTitle">
   <form class="sheet" id="tradeForm" method="dialog" novalidate>
-    <div class="top"><h3 id="dlgTitle">거래 입력</h3><button type="button" class="icon-btn" id="dlgClose" aria-label="닫기">닫기</button></div>
+    <div class="top"><h3 id="dlgTitle">기록 추가</h3><button type="button" class="icon-btn" id="dlgClose" aria-label="닫기">닫기</button></div>
+    <div class="row"><div class="seg" id="dlgTab" role="group" aria-label="입력 방식"></div></div>
 
+    <div id="paneFile" hidden>
+      <div class="row"><span class="lb">계좌 (파일 내용으로 자동 추정, 다르면 바꾸기)</span><div class="seg" id="xAcct" role="group" aria-label="엑셀 계좌"></div></div>
+      <div class="row"><label for="xFile">미래에셋 거래내역 파일 (.xls)</label><input type="file" id="xFile" accept=".xls,.xlsx,.html,.htm"></div>
+      <div class="note" style="margin:0 0 12px">기간은 넉넉하게 잡아도 괜찮아요. 이미 있는 기록은 건너뛰고 빠진 것만 추가합니다.</div>
+      <div id="xPreview"></div>
+      <button type="button" class="primary" id="xApply" hidden>반영하기</button>
+      <div class="status" id="xStatus" role="status"></div>
+    </div>
+
+    <div id="paneInput">
     <div class="row"><span class="lb">구분</span><div class="seg" id="fType" role="group" aria-label="구분"></div></div>
     <div class="row"><span class="lb">계좌</span><div class="seg" id="fAcct" role="group" aria-label="계좌"></div></div>
     <div class="row"><label for="fDate">날짜 (체결일)</label><input type="date" id="fDate"></div>
@@ -344,21 +362,26 @@
     </div>
 
     <div id="cashFields" hidden>
-      <div class="row"><label for="fAmt">금액 (원)</label><input type="number" id="fAmt" inputmode="decimal" step="any" min="0"></div>
+      <div class="grid2">
+        <div class="row"><label for="fAmt" id="fAmtLb">금액 (원)</label><input type="number" id="fAmt" inputmode="decimal" step="any" min="0"></div>
+        <div class="row"><span class="lb">통화</span><div class="seg" id="fDivCcy" role="group" aria-label="통화"></div></div>
+      </div>
+      <div class="row" id="fDivFxRow" hidden><label for="fDivFx">환율 (원/달러)</label><input type="number" id="fDivFx" inputmode="decimal" step="any" min="0"></div>
     </div>
 
     <div class="sum" id="fSum"></div>
     <button type="submit" class="primary" id="fSave">저장</button>
     <div class="status" id="fStatus" role="status"></div>
 
-    <div class="recent"><h4>최근 입력 (시트 맨 아래부터)</h4><div id="recent"></div></div>
+    <div class="recent"><h4>최근 기록 (시트 맨 아래부터)</h4><div id="recent"></div></div>
+    </div>
   </form>
 </dialog>
 
 <script>
 // 앱을 열면 항상 맨 위부터 (이전 스크롤 위치 복원 끔)
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-const BUILD = '2026.10.09 01:00'; // 화면 하단 버전 표시 + 새 버전 감지용
+const BUILD = '2026.10.09 01:17'; // 화면 하단 버전 표시 + 새 버전 감지용
 const APP_NAME = 'Portfolio'; // 사이트 이름 (여기만 바꾸면 됨, <title>도 같이)
 document.querySelectorAll('.appname').forEach(e => e.textContent = APP_NAME);
 
@@ -413,6 +436,18 @@ function compute(raw) {
   const fxOn = d => { const f = px[FX]?.[d]; if (f) lastFx = f[3]; return lastFx; };
   const C = acct => cash[acct] ??= { KRW: 0, USD: 0 };
 
+  // 문자 잔액(원화 '잔액=', 달러 '잔액USD=')이 찍힌 가장 최근 날짜. 엑셀로 넣은 그 이전 기록은 현금을 다시 건드리지 않음
+  const snapDate = {};
+  trades.forEach(x => {
+    const s = (snapDate[x.acct] ??= { KRW: '', USD: '' });
+    if (/잔액=\d/.test(x.memo) && x.d > s.KRW) s.KRW = x.d;
+    if (/잔액USD=/.test(x.memo) && x.d > s.USD) s.USD = x.d;
+  });
+  const cashAdd = (x, ccy, amt) => {
+    if (x.memo.startsWith('엑셀') && (snapDate[x.acct]?.[ccy] || '') >= x.d) return; // 이미 문자 잔액에 포함된 과거분
+    C(x.acct)[ccy] += amt;
+  };
+
   const apply = x => {
     if (x.t === '매수' || x.t === '매도') {
       const k = x.acct + '|' + x.code;
@@ -422,7 +457,7 @@ function compute(raw) {
       const fl = (flow[x.acct] ??= { buy: 0, sell: 0 });
       if (x.t === '매수') {
         p.q += x.q; p.costN += x.a; p.costK += x.a * fxT; m.b += x.q; fl.buy += x.a * fxT; p.first ??= x.d;
-        C(x.acct)[x.ccy] -= x.a + x.fee;
+        cashAdd(x, x.ccy, -(x.a + x.fee));
       } else {
         const r = p.q > EPS ? x.q / p.q : 0;
         const outN = p.costN * r, outK = p.costK * r;
@@ -431,7 +466,7 @@ function compute(raw) {
         p.costN -= outN; p.costK -= outK; p.q -= x.q;
         if (p.q < 1e-7) { p.q = 0; p.costN = 0; p.costK = 0; }
         m.s += x.q; fl.sell += (x.a - x.fee - x.tax) * fxT;
-        C(x.acct)[x.ccy] += x.a - x.fee - x.tax;
+        cashAdd(x, x.ccy, x.a - x.fee - x.tax);
       }
     } else if (x.t === '평단보정') {
       // 증권사 평단으로 맞춤. 줄어든(늘어난) 원가만큼 실현손익으로 옮겨서 누적 손익은 그대로 유지
@@ -442,17 +477,16 @@ function compute(raw) {
         p.costN = newN; p.costK = newK;
       }
     } else if (['입금', '이자', '배당', '분배금'].includes(x.t)) {
-      C(x.acct)[x.ccy] += x.a;
+      cashAdd(x, x.ccy, x.a);
       // 배당·분배금·이자는 예수금으로 남아도 번 돈이니까 수익으로 따로 누적 (달러면 원화 환산)
       if (x.t !== '입금') income[x.acct] = (income[x.acct] || 0) + x.a * (x.ccy === 'USD' ? (x.fx > 1 ? x.fx : lastFx || 1) : 1);
-    }
-    else if (['출금', '세금'].includes(x.t)) C(x.acct)[x.ccy] -= x.a;
+    } else if (['출금', '세금'].includes(x.t)) cashAdd(x, x.ccy, -x.a);
+    else if (x.t === '환전') { cashAdd(x, 'KRW', -x.a); cashAdd(x, 'USD', x.a / x.fx); }
+    else if (x.t === '재환전') { cashAdd(x, 'KRW', x.a); cashAdd(x, 'USD', -x.a / x.fx); }
     // 문자로 받은 증권사 실제 잔액이 있으면 그 값으로 예수금을 맞춤 (누적 오차 제거)
     const snap = /잔액=(\d+)/.exec(x.memo || '');
     if (snap && (x.t === '입금' || x.t === '출금')) { C(x.acct).KRW = +snap[1]; snaps[x.acct] = x.d + ' ' + ((/문자자동 (\d{1,2}:\d{2})/.exec(x.memo) || [])[1] || ''); }
-    else if (x.t === '환전') { C(x.acct).KRW -= x.a; C(x.acct).USD += x.a / x.fx; }
-    else if (x.t === '재환전') { C(x.acct).KRW += x.a; C(x.acct).USD -= x.a / x.fx; }
-    // 환전 문자에 찍힌 실제 달러 잔액으로 달러 예수금을 맞춤 (배당금 누락 등 오차 제거)
+    // 환전 문자에 찍힌 실제 달러 잔액으로 달러 예수금을 맞춤
     const usdSnap = (x.t === '환전' || x.t === '재환전') && /잔액USD=([\d.]+)/.exec(x.memo || '');
     if (usdSnap) C(x.acct).USD = +usdSnap[1];
   };
@@ -764,7 +798,7 @@ function renderAll() {
   // 마지막으로 받은 증권사 문자 (자동화가 살아 있는지 확인용)
   const ls = RAW && RAW.lastSms;
   const what = ls ? ((/\(([^)]+)\)/.exec(ls[3]) || [])[1] || `${ls[1]} ${ls[3]}`).replace(' (재처리)', '') : '';
-  $('lastSms').textContent = ls ? `마지막 문자 ${ls[0].slice(5, 16).replace('-', '/')} · ${ls[2] ? ls[2] + ' ' : ''}${what}` : '';
+  $('lastSms').textContent = ls ? `최근 반영 ${ls[0].slice(5, 16).replace('-', '/')} · ${ls[2] ? ls[2] + ' ' : ''}${what}` : '';
   const ver = RAW && RAW.version || {};
   $('foot').innerHTML = `<span>화면 ${BUILD}</span><span>서버(Code) ${esc(ver.code || '구버전')}</span><span>초기 데이터(Seed) ${esc(ver.seed || '-')}</span>`;
 }
@@ -1109,7 +1143,8 @@ function renderCash() {
   let totalK = 0;
   $('cash').innerHTML = order.filter(a => S.cash[a]).map(a => {
     const c = S.cash[a]; totalK += c.KRW + c.USD * S.fx;
-    const usdLine = Math.abs(c.USD) >= 0.01 ? `<small>${c.USD < 0 ? '−' : '+'} ${usd(Math.abs(c.USD))} (약 ${won(Math.abs(c.USD) * S.fx)}원)</small>` : '';
+    // 달러 예수금도 원화와 같은 크기로 (환산액만 작게)
+    const usdLine = Math.abs(c.USD) >= 0.01 ? `<b>${c.USD < 0 ? '−' : ''}${usd(Math.abs(c.USD))}</b><small>약 ${won(Math.abs(c.USD) * S.fx)}원</small>` : '';
     const snap = S.snaps[a] ? `<small>증권사 잔액 기준 ${S.snaps[a].slice(5).replace('-', '/')}</small>` : '';
     return `<div>${a === '종합' ? '종합(해외)' : a}<b>${won(c.KRW)}원</b>${usdLine}${snap}</div>`;
   }).join('');
@@ -1117,7 +1152,7 @@ function renderCash() {
 }
 
 // ───────── 거래 입력 폼 ─────────
-const F = { t: '매수', acct: 'ISA', nccy: 'KRW' };
+const F = { t: '매수', acct: 'ISA', nccy: 'KRW', dccy: 'KRW' };
 const NEW = '__new__';
 const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 
@@ -1129,6 +1164,7 @@ function openForm() {
   $('fStatus').textContent = ''; $('fStatus').className = 'status';
   drawForm(true);
   renderRecent();
+  setTab(F.tab || 'input');
   $('dlg').showModal();
 }
 
@@ -1137,7 +1173,11 @@ function heldIn(acct, code) {
 }
 
 function drawForm(resetCode) {
-  seg($('fType'), ['매수', '매도', '입금', '출금', '배당', '평단보정'].map(x => [x, x]), F.t, t => { F.t = t; drawForm(true); });
+  seg($('fType'), [['매수', '매수'], ['매도', '매도'], ['배당', '배당·이자'], ['평단보정', '평단보정']], F.t, t => { F.t = t; drawForm(true); });
+  seg($('fDivCcy'), [['KRW', '원화'], ['USD', '달러']], F.dccy, c => { F.dccy = c; drawForm(false); });
+  $('fAmtLb').textContent = F.dccy === 'USD' ? '금액 ($, 세후)' : '금액 (원, 세후)';
+  $('fDivFxRow').hidden = F.dccy !== 'USD';
+  if (F.dccy === 'USD' && !$('fDivFx').value) $('fDivFx').value = S.fx ? S.fx.toFixed(1) : '';
   seg($('fAcct'), ['ISA', '종합', 'CMA'].map(x => [x, x === '종합' ? '종합(해외)' : x]), F.acct, a => { F.acct = a; drawForm(true); });
   const fix = F.t === '평단보정';
   const trade = F.t === '매수' || F.t === '매도' || fix;
@@ -1145,7 +1185,6 @@ function drawForm(resetCode) {
   $('cashFields').hidden = trade;
   // 평단보정은 종목 + 평단만 입력
   [$('fQty'), $('fFee')].forEach(el => el.closest('.row').style.display = fix ? 'none' : '');
-  $('fAmt').previousElementSibling.textContent = F.t === '배당' ? '금액 (원, 세후)' : '금액 (원)';
 
   if (trade && resetCode) {
     let codes = Object.keys(S.tick).filter(c => !c.startsWith('_'));
@@ -1180,7 +1219,7 @@ function updateSum() {
     return;
   }
   const trade = F.t === '매수' || F.t === '매도';
-  if (!trade) { const a = num($('fAmt').value); $('fSum').innerHTML = a ? `<b>${won(a)}원</b> ${F.t}` : ''; return; }
+  if (!trade) { const a = num($('fAmt').value); $('fSum').innerHTML = a ? `<b>${money(a, F.dccy)}</b> 배당·이자` : ''; return; }
   const q = num($('fQty').value), p = num($('fPrice').value), fee = num($('fFee').value), ccy = currentCcy();
   if (!q || !p) { $('fSum').textContent = ''; return; }
   const a = q * p, fx = num($('fFx').value) || S.fx;
@@ -1221,7 +1260,8 @@ $('tradeForm').addEventListener('submit', async ev => {
       if (t.q <= 0 || t.p <= 0) throw new Error('수량과 단가를 확인하세요.');
       if (F.t === '매도' && t.q > heldIn(F.acct, code) + 1e-7) throw new Error(`보유 수량(${qty(heldIn(F.acct, code))})보다 많이 팔 수 없습니다.`);
     } else {
-      t.a = num($('fAmt').value); t.ccy = 'KRW';
+      t.a = num($('fAmt').value); t.ccy = F.dccy;
+      if (F.dccy === 'USD') t.fx = num($('fDivFx').value) || S.fx;
       if (t.a <= 0) throw new Error('금액을 입력하세요.');
     }
   } catch (e) { st.textContent = e.message; st.className = 'status err'; return; }
@@ -1251,6 +1291,212 @@ function renderRecent() {
     renderRecent();
   });
 }
+
+// ───────── 엑셀(거래내역) 업로드 ─────────
+// 미래에셋 거래내역 파일 두 형식(2줄 1건 형식 / 외화금액 열 있는 1줄 형식)을 읽어서
+// 결제일 → 체결일 역산, 종목 매칭, 환율 계산 후 이미 있는 기록과 대조해 빠진 것만 추가
+const XL = { recs: null, acct: null, plan: null };
+const XNAMES = {
+  '엔비디아': 'NVDA', '테슬라': 'TSLA', 'PROSHARES QQQ 2X': 'QLD', '아이온큐': 'IONQ', '인텔': 'INTC', '마이크로소프트': 'MSFT',
+  'ISHARES SILVER TRUST': 'SLV', 'ISHARES 20+Y TREASURY BOND': 'TLT', 'SPDR HEALTH CARE SELECT SECTOR': 'XLV',
+  'SPDR GOLD SHARES TRUST': 'GLD', 'SPDR GOLD SHARES': 'GLD', '스페이스X': 'SPCX', 'DIREXION SEMICONDUCTOR DAILY 3X': 'SOXL',
+  'ROUNDHILL MEMORY': 'DRAM', 'ISHARES SEMICONDUCTOR': 'SOXX', 'ISHARES SEMICOND': 'SOXX', '다크아이리스': '_DARKIRIS',
+  'LEVERAGE SHARES SPCX DAILY -2X': '_SPCXM2X', '삼성전자(소수)': '005930', '삼성전자': '005930',
+};
+const XKEYS = [['엔비디아알파벳', '0224X0'], ['미국S&P500', '360750'], ['은선물', '144600'], ['AI전력', '487230'], ['HBM', '442580'],
+  ['KODEX200', '069500'], ['TOP4', '446770'], ['우주테크', '0183J0'], ['로보틱스', '0204D0']];
+const xSaved = () => { try { return JSON.parse(localStorage.getItem('xlsNames') || '{}'); } catch (e) { return {}; } };
+function resolveName(name) {
+  const raw = String(name || '').trim(); if (!raw) return null;
+  if (XNAMES[raw] || XNAMES[raw.toUpperCase()]) return XNAMES[raw] || XNAMES[raw.toUpperCase()];
+  const sv = xSaved(); if (sv[raw]) return sv[raw];
+  const flat = raw.replace(/\s/g, '');
+  for (const [kw, c] of XKEYS) if (flat.includes(kw)) return c;
+  const norm = s => String(s || '').replace(/[\s()\-.,&]/g, '').toUpperCase();
+  for (const c in S.tick) { const tn = norm(S.tick[c].name); if (tn.length > 2 && (tn.includes(norm(raw)) || norm(raw).includes(tn))) return c; }
+  return null;
+}
+
+function parseXls(text) {
+  const doc = new DOMParser().parseFromString(text, 'text/html');
+  const tables = [...doc.querySelectorAll('table')];
+  const t = tables[tables.length - 1];
+  if (!t) throw new Error('표를 찾지 못했습니다. 미래에셋 거래내역 파일인지 확인하세요.');
+  const rows = [...t.querySelectorAll('tr')].map(r => [...r.querySelectorAll('td,th')].map(c => c.textContent.trim()));
+  const n = s => +String(s || '').replace(/[^\d.\-]/g, '') || 0;
+  const isDate = s => /^\d{4}\.\d{2}\.\d{2}$/.test(s || '');
+  const recs = [];
+  if ((rows[0] || []).includes('외화거래금액')) {        // 1줄 1건 형식
+    rows.slice(1).forEach(r => {
+      if (r.length < 7 || !isDate(r[0])) return;
+      recs.push({ rd: r[0].replace(/\./g, '-'), kind: r[1], name: r[2], q: n(r[3]), krw: n(r[4]), usd: n(r[5]), fee: n(r[6]), price: 0, tax: 0 });
+    });
+  } else {                                                 // 2줄 1건 형식
+    const body = rows.filter(r => r.length >= 6).slice(2);
+    for (let i = 0; i + 1 < body.length; i += 2) {
+      const a = body[i], b = body[i + 1];
+      if (!isDate(a[0])) { i--; continue; }
+      recs.push({ rd: a[0].replace(/\./g, '-'), kind: a[1], name: b[0], q: n(a[2]), krw: n(b[2]) || n(a[3]), trade: n(a[3]),
+        fee: n(a[5]), price: b[1] === '-' ? 0 : n(b[1]), tax: n(b[4]), usd: 0 });
+    }
+  }
+  if (!recs.length) throw new Error('거래 기록을 읽지 못했습니다. 미래에셋 거래내역 엑셀 파일인지 확인하세요.');
+  return recs.reverse(); // 파일은 최신순 → 시간순
+}
+
+function guessAcct(recs) {
+  if (recs.some(r => /해외|외화/.test(r.kind))) return '종합';
+  if (recs.some(r => /^주식(매수입고|매도출고)$/.test(r.kind))) return 'ISA';
+  return 'CMA';
+}
+
+// 거래일 달력: 저장된 시세 날짜(국내/미국) + 시세가 아직 없는 최근 평일
+function tradeCals() {
+  const kr = new Set(), us = new Set();
+  for (const c in S.px) { if (c === FX || c.startsWith('IDX_')) continue; const set = S.tick[c]?.ccy === 'USD' ? us : kr; for (const d in S.px[c]) set.add(d); }
+  return { kr: [...kr].sort(), us: [...us].sort() };
+}
+function calTo(cal, d) {
+  const out = cal.slice(); let last = out[out.length - 1] || d;
+  const t = new Date(last + 'T00:00:00Z');
+  while (last < d) { t.setUTCDate(t.getUTCDate() + 1); last = t.toISOString().slice(0, 10); const w = t.getUTCDay(); if (w && w < 6) out.push(last); }
+  return out;
+}
+function backDays(cal, d, k) { let i = -1; for (let j = 0; j < cal.length && cal[j] <= d; j++) i = j; return i - k >= 0 ? cal[i - k] : d; }
+function closeOn(code, d) { let v = 0; const m = S.px[code] || {}; for (const k of Object.keys(m).sort()) { if (k > d) break; v = m[k][3]; } return v; }
+
+function buildPlan(recs, acct) {
+  const { kr, us } = tradeCals();
+  // 결제일별 환전 환율: 2줄 형식은 외화입금 행 단가, 1줄 형식은 같은 날 원화 출금 ÷ 달러 입금
+  const fxBy = {}, krwOut = {}, usdIn = {};
+  recs.forEach(r => {
+    if (/^외화(매수외화입금|매도외화출금)/.test(r.kind)) { if (r.price > 100) fxBy[r.rd] = r.price; else if (r.usd) usdIn[r.rd] = (usdIn[r.rd] || 0) + r.usd; }
+    if (/^외화매수원화출금/.test(r.kind) && r.krw) krwOut[r.rd] = (krwOut[r.rd] || 0) + r.krw;
+  });
+  for (const d in usdIn) if (!fxBy[d] && krwOut[d]) fxBy[d] = Math.round(krwOut[d] / usdIn[d] * 100) / 100;
+  const fxOf = d => fxBy[d] || closeOn(FX, d) || S.fx;
+
+  const out = [], skipped = {}, unresolved = {};
+  recs.forEach((r, i) => {
+    const k = r.kind, nx = recs[i + 1], memo = `엑셀 결제 ${r.rd} ${k}`;
+    const isBuy = /매수입고$/.test(k), isSell = /매도출고$/.test(k);
+    if (isBuy || isSell) {
+      const usd = /해외/.test(k), frac = /^소수주식/.test(k);
+      const code = resolveName(r.name);
+      if (!code) { (unresolved[r.name] ??= { usd, n: 0 }).n++; return; }
+      let q = r.q; if (frac && q > 1000) q /= 1e6; q = Math.round(q * 1e6) / 1e6;
+      if (!(q > 0)) return;
+      let price = r.price, amt;
+      if (usd) { amt = r.usd || +(q * price).toFixed(4); if (!price) price = amt / q; }
+      else { amt = r.trade || Math.round(q * price); if (!price) price = amt / q; }
+      let fee = r.fee; if (!fee && nx && /(매수출금|매도입금)$/.test(nx.kind)) fee = nx.fee;
+      let d = null;
+      if (usd) {
+        const cal = calTo(us, r.rd);
+        for (const kk of [2, 1, 0, 3]) { const dd = backDays(cal, r.rd, kk), b = S.px[code]?.[dd]; if (b && price >= b[2] * 0.995 && price <= b[1] * 1.005) { d = dd; break; } }
+        d = d || backDays(cal, r.rd, 2);
+      } else d = backDays(calTo(kr, r.rd), r.rd, 2);
+      out.push({ d, t: isBuy ? '매수' : '매도', code, name: r.name, q, p: +price.toFixed(4), ccy: usd ? 'USD' : 'KRW', fx: usd ? fxOf(r.rd) : 1,
+        a: usd ? +amt.toFixed(4) : Math.round(amt), fee, tax: r.tax || 0, memo, rd: r.rd });
+      return;
+    }
+    const cash = (t, a, ccy, ex = {}) => { if (a > 0) out.push({ d: r.rd, t, code: ex.code || '', name: '', q: 0, p: 0, ccy, fx: ex.fx || 1, a, fee: 0, tax: 0, memo, rd: r.rd }); };
+    if (/^(계좌대체입금|이체입금|은행이체대체입금|이체입금\(오픈\)|선환전차액입금)$/.test(k)) cash('입금', r.krw, 'KRW');
+    else if (/^(계좌대체출금|이체송금|은행이체대체송금|선환전차액출금)$/.test(k)) cash('출금', r.krw, 'KRW');
+    else if (/^외화매수원화출금/.test(k)) cash('환전', r.krw, 'KRW', { fx: fxOf(r.rd) });
+    else if (k === '외화매도원화입금') cash('재환전', r.krw, 'KRW', { fx: fxOf(r.rd) });
+    else if (k === '예탁금이용료입금') cash('이자', r.krw, 'KRW');
+    else if (k === '외화예탁금이용료입금') cash('이자', r.usd, 'USD', { fx: fxOf(r.rd) });
+    else if (/분배금입금/.test(k)) cash('분배금', r.krw, 'KRW', { code: resolveName(r.name) || '' });
+    else if (k === '배당금입금' || k === '세금환급') cash('배당', r.krw, 'KRW');
+    else if (k === '배당금외화입금') cash('배당', r.usd, 'USD', { fx: fxOf(r.rd), code: resolveName(r.name) || '' });
+    else if (/세금출금$|배당세출금$/.test(k)) { if (r.usd) cash('세금', r.usd, 'USD'); else cash('세금', r.krw, 'KRW'); }
+    else if (/(매수출금|매도입금|외화매수외화입금|외화매도외화출금)$/.test(k)) { /* 짝 행: 위에서 처리 */ }
+    else skipped[k] = (skipped[k] || 0) + 1;
+  });
+
+  // 이미 있는 기록과 대조: 같은 계좌·구분, (거래면 같은 종목·수량 / 현금이면 같은 금액), 날짜 3일 이내 → 같은 기록
+  const ex = S.trades.filter(x => x.acct === acct);
+  const used = new Set(), add = [], fixes = [];
+  let dup = 0;
+  const days = (a, b) => Math.abs(new Date(a) - new Date(b)) / 864e5;
+  out.forEach(c => {
+    const trade = c.t === '매수' || c.t === '매도';
+    const m = ex.find(e => !used.has(e.row) && e.t === c.t && days(e.d, c.d) <= 3 && (trade
+      ? e.code === c.code && Math.abs(e.q - c.q) < 1e-6
+      : e.ccy === c.ccy && Math.abs(e.a - c.a) <= (c.ccy === 'USD' ? 0.011 : 1)));
+    if (!m) { add.push(c); return; }
+    used.add(m.row); dup++;
+    // 문자·폼으로 들어간 거래는 엑셀의 실제 수수료·환율로 교정
+    if (trade && /^(문자자동|폼입력)/.test(m.memo) && m.row) {
+      const u = {};
+      if (c.fee > 0 && !(m.fee > 0)) u.fee = c.fee;
+      if (c.ccy === 'USD' && c.fx > 1 && !(m.fx > 1)) u.fx = c.fx;
+      if (Object.keys(u).length) fixes.push({ row: m.row, check: { d: m.d, acct: m.acct, t: m.t, code: m.code }, ...u, c });
+    }
+  });
+  return { add, fixes, dup, skipped, unresolved, acct };
+}
+
+function setTab(t) {
+  F.tab = t;
+  seg($('dlgTab'), [['input', '직접 입력'], ['file', '파일 올리기']], t, setTab);
+  $('paneInput').hidden = t !== 'input'; $('paneFile').hidden = t !== 'file';
+  if (t === 'file') drawFile();
+}
+function drawFile() {
+  seg($('xAcct'), ['ISA', '종합', 'CMA'].map(a => [a, a === '종합' ? '종합(해외)' : a]), XL.acct, a => { XL.acct = a; drawFile(); });
+  const el = $('xPreview');
+  if (!XL.recs) { el.innerHTML = ''; $('xApply').hidden = true; return; }
+  XL.plan = buildPlan(XL.recs, XL.acct);
+  const P = XL.plan;
+  const line = c => {
+    const what = c.code ? `${esc(label(c.code))} ${c.q ? qty(c.q) + '주 ' : ''}${money(c.q ? c.p : c.a, c.ccy)}` : money(c.a, c.ccy);
+    return `<div class="it"><span>${c.d.slice(5).replace('-', '/')} ${c.t} ${what}</span><small>결제 ${c.rd.slice(5).replace('-', '/')}</small></div>`;
+  };
+  const unr = Object.entries(P.unresolved);
+  const sk = Object.entries(P.skipped);
+  el.className = 'xprev';
+  el.innerHTML = `
+    <div class="sumline"><span>새로 추가 <b>${P.add.length}</b>건</span><span>이미 있음 <b>${P.dup}</b>건</span><span>수수료·환율 교정 <b>${P.fixes.length}</b>건</span></div>
+    ${P.add.length ? `<h5>새로 추가</h5>${P.add.slice(0, 60).map(line).join('')}${P.add.length > 60 ? `<div class="it"><small>외 ${P.add.length - 60}건</small></div>` : ''}` : ''}
+    ${P.fixes.length ? `<h5>교정 (문자로 들어간 거래에 실제 값 채움)</h5>${P.fixes.map(f => `<div class="it"><span>${f.c.d.slice(5).replace('-', '/')} ${esc(label(f.c.code))} ${qty(f.c.q)}주</span><small>${f.fee != null ? '수수료 ' + money(f.fee, f.c.ccy) + ' ' : ''}${f.fx != null ? '환율 ' + f.fx : ''}</small></div>`).join('')}` : ''}
+    ${unr.length ? `<h5>종목을 못 찾음 (코드를 입력하면 기억해둠)</h5>${unr.map(([nm, u]) => `<div class="it"><span>${esc(nm)} <small>${u.n}건</small></span><input type="text" data-nm="${esc(nm)}" placeholder="${u.usd ? '예: QQQ' : '예: 360750'}" autocapitalize="characters"></div>`).join('')}` : ''}
+    ${sk.length ? `<h5>건너뜀 (처리하지 않는 종류)</h5><div class="it"><small>${sk.map(([k, n]) => `${esc(k)} ${n}건`).join(', ')}</small></div>` : ''}
+    ${!P.add.length && !P.fixes.length ? '<div class="note">추가할 기록이 없어요. 이미 장부가 최신입니다.</div>' : ''}`;
+  el.querySelectorAll('input[data-nm]').forEach(inp => inp.onchange = () => {
+    const v = inp.value.trim().toUpperCase(); if (!v) return;
+    try { const sv = xSaved(); sv[inp.dataset.nm] = v; localStorage.setItem('xlsNames', JSON.stringify(sv)); } catch (e) {}
+    drawFile();
+  });
+  $('xApply').hidden = !(P.add.length || P.fixes.length);
+  $('xApply').textContent = `반영하기 (추가 ${P.add.length}, 교정 ${P.fixes.length})`;
+}
+$('xFile').addEventListener('change', async () => {
+  const f = $('xFile').files[0]; if (!f) return;
+  $('xStatus').textContent = ''; $('xStatus').className = 'status';
+  try {
+    const buf = await f.arrayBuffer();
+    let text = new TextDecoder('utf-8').decode(buf);
+    if (!/<table/i.test(text)) text = new TextDecoder('euc-kr').decode(buf);
+    if (!/<table/i.test(text)) throw new Error('이 파일은 읽을 수 없어요. 미래에셋에서 내려받은 거래내역 .xls 파일을 그대로 올려주세요.');
+    XL.recs = parseXls(text); XL.acct = guessAcct(XL.recs);
+    drawFile();
+  } catch (e) { XL.recs = null; drawFile(); $('xStatus').textContent = e.message; $('xStatus').className = 'status err'; }
+});
+$('xApply').onclick = async () => {
+  const P = XL.plan; if (!P) return;
+  const rows = P.add.map(c => [c.d, P.acct, c.t, c.code, c.name, c.q, c.p, c.ccy, c.ccy === 'USD' ? c.fx : 1, c.a, c.fee, c.tax, c.memo]);
+  const tickers = [...new Set(P.add.filter(c => c.code && !S.tick[c.code]).map(c => c.code))]
+    .map(code => { const c = P.add.find(x => x.code === code); return { code, name: c.name, ccy: c.ccy }; });
+  const updates = P.fixes.map(f => ({ row: f.row, check: f.check, fee: f.fee, fx: f.fx }));
+  $('xApply').disabled = true; $('xStatus').textContent = '반영 중…'; $('xStatus').className = 'status';
+  const res = await api({ action: 'import', rows, updates, tickers });
+  $('xApply').disabled = false;
+  if (!res.ok) { $('xStatus').textContent = res.error; $('xStatus').className = 'status err'; return; }
+  $('xStatus').textContent = res.message || '반영했습니다.';
+  drawFile(); // 다시 대조하면 전부 '이미 있음'으로 나와야 정상
+};
 
 $('fab').onclick = openForm;
 $('dlgClose').onclick = () => $('dlg').close();
