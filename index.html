@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Folio">
+<meta name="apple-mobile-web-app-title" content="Portfolio">
 <meta name="robots" content="noindex">
-<title>Folio</title>
+<title>Portfolio</title>
 <!-- 아이콘: 저장소에 아래 파일을 올리면 자동 적용 (없어도 동작엔 문제 없음) -->
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -166,7 +166,7 @@
 <body>
 <main>
   <form id="lock" class="lock" hidden>
-    <h1 class="appname">Folio</h1>
+    <h1 class="appname">Portfolio</h1>
     <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN" aria-label="PIN">
     <label><input id="remember" type="checkbox" checked> 이 기기에서 기억하기</label>
     <button type="submit" class="primary">열기</button>
@@ -176,7 +176,7 @@
 
   <div id="app" hidden>
     <div class="topbar">
-      <div class="brand appname">Folio</div>
+      <div class="brand appname">Portfolio</div>
       <div class="seg" id="acctSeg" role="group" aria-label="계좌"></div>
     </div>
 
@@ -282,7 +282,7 @@
 </dialog>
 
 <script>
-const APP_NAME = 'Folio'; // 사이트 이름 (여기만 바꾸면 됨, <title>도 같이)
+const APP_NAME = 'Portfolio'; // 사이트 이름 (여기만 바꾸면 됨, <title>도 같이)
 document.querySelectorAll('.appname').forEach(e => e.textContent = APP_NAME);
 
 const $ = id => document.getElementById(id);
