@@ -120,6 +120,12 @@
   .dlist .etc { color: var(--sub); font-size: 12px; padding: 2px 0 4px 18px; line-height: 1.5; }
 
   .tablewrap { overflow-x: auto; }
+  .topright { display: flex; align-items: center; gap: 8px; }
+  .lockbtn { border: 0; background: var(--soft); color: var(--sub); width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; cursor: pointer; flex: none; }
+  .lockbtn:hover { color: var(--ink); }
+  .today { font-size: 13px; color: var(--sub); margin-top: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .today b { font-weight: 650; }
+  .today button { border: 0; background: none; color: var(--sub); cursor: pointer; font: inherit; font-size: 14px; padding: 0 2px; }
   #chartTicker { position: relative; }
   .peakpin { position: absolute; top: 6px; z-index: 3; pointer-events: none; font-size: 11px; line-height: 1.4;
     background: var(--sub); color: var(--panel); padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
@@ -207,13 +213,14 @@
   <div id="app" hidden>
     <div class="topbar">
       <div class="brand"><img class="brandicon" src="apple-touch-icon.png?v=3" alt="" width="32" height="32"><span class="appname">Portfolio</span></div>
-      <div class="seg" id="acctSeg" role="group" aria-label="계좌"></div>
+      <div class="topright"><div class="seg" id="acctSeg" role="group" aria-label="계좌"></div><button type="button" class="lockbtn" id="lockBtn" title="잠금 (PIN 화면으로)" aria-label="잠금"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></button></div>
     </div>
 
     <section class="hero">
       <div class="label" id="asof"></div>
       <div class="total" id="total"></div>
       <div class="pl" id="pl"></div>
+      <div class="today" id="today"></div>
       <div class="stats">
         <div>매입금액<b id="cost"></b></div>
         <div>실현손익 누적<b id="realized"></b></div>
@@ -230,6 +237,7 @@
         </div>
       </div>
       <div class="tinfo" id="totalInfo"></div>
+      <div class="chart" id="chartToday" hidden></div>
       <div class="chart" id="chartTotal"></div>
       <div class="rangebar"><div class="seg" id="rgTotal" role="group" aria-label="투자 추이 기간"></div><span class="hint">드래그로 이동, 휠·핀치로 확대</span></div>
       <div class="legend" id="totalLegend"></div>
@@ -567,7 +575,7 @@ const saveView = () => { try { const { code, showClosed, ...rest } = view; local
 let benchSeries = {};
 let totalChart, sVal, sCost, sPnl, tickerChart, candle, closeLine, avgSeries, axTotal, axTicker;
 // 기간 버튼: 마지막 봉 기준으로 며칠 전부터 보여줄지
-const RANGES = [['W1', '1주', 7], ['M1', '1개월', 31], ['M3', '3개월', 92], ['M6', '6개월', 183], ['Y1', '1년', 366], ['ALL', '전체', 0]];
+const RANGES = [['D1', '오늘', -1], ['W1', '1주', 7], ['M1', '1개월', 31], ['M3', '3개월', 92], ['M6', '6개월', 183], ['Y1', '1년', 366], ['ALL', '전체', 0]];
 function applyRange(chart, lastTime, key) {
   const ts = chart.timeScale();
   const r = RANGES.find(x => x[0] === key);
@@ -714,16 +722,17 @@ function renderAll() {
   if (!view.code || ![...v.holdings, ...v.closed].some(h => h.code === view.code)) view.code = (v.holdings[0] || v.closed[0])?.code;
   seg($('modeSeg'), [['candle', '캔들'], ['line', '선']], view.mode, m => { view.mode = m; saveView(); showTicker(view.code); });
   seg($('tfTicker'), TF, view.tfK, tf => { view.tfK = tf; saveView(); showTicker(view.code); });
-  seg($('rgTicker'), RANGES.map(r => [r[0], r[1]]), view.rgK, k => { view.rgK = k; saveView(); applyRange(tickerChart, S._lastShown, k); });
+  seg($('rgTicker'), RANGES.filter(r => r[0] !== 'D1').map(r => [r[0], r[1]]), view.rgK, k => { view.rgK = k; saveView(); applyRange(tickerChart, S._lastShown, k); });
   renderChips();
   if (view.code) showTicker(view.code);
   renderCash();
+  renderTodayInfo();
 }
 
 function renderTotal() {
   seg($('tmodeSeg'), [['pnl', '손익 캔들'], ['line', '평가액 선']], view.tmode, m => { view.tmode = m; saveView(); renderTotal(); });
   seg($('tfTotal'), TF, view.tfT, tf => { view.tfT = tf; saveView(); renderTotal(); });
-  seg($('rgTotal'), RANGES.map(r => [r[0], r[1]]), view.rgT, k => { view.rgT = k; saveView(); applyRange(totalChart, dates[dates.length - 1], k); });
+  seg($('rgTotal'), RANGES.map(r => [r[0], r[1]]), view.rgT, k => { view.rgT = k; saveView(); renderTotal(); });
   const ser = S.views[view.f].series.filter(s => s.val > 0 || s.cost > 0 || s.realized);
   const dates = ser.map(s => s.time);
   const isPnl = view.tmode === 'pnl';
@@ -751,7 +760,9 @@ function renderTotal() {
     if (lastPt) benchNow[code] = lastPt.value;
   });
   axTotal.set(toCandles(pnl, view.tfT).map(b => b.time), view.tfT);
-  applyRange(totalChart, dates[dates.length - 1], view.rgT);
+  const todayMode = view.rgT === 'D1';
+  $('chartTotal').hidden = todayMode; $('chartTotal').nextElementSibling.hidden = todayMode; $('chartToday').hidden = !todayMode;
+  if (todayMode) renderToday(); else applyRange(totalChart, dates[dates.length - 1], view.rgT);
 
   const lastS = ser[ser.length - 1];
   const nowPnl = lastS ? lastS.val - lastS.cost + lastS.realized : 0;
@@ -766,6 +777,15 @@ function renderTotal() {
   $('totalLegend').querySelectorAll('.bench').forEach(b => b.onclick = () => {
     view.bench = { ...view.bench, [b.dataset.b]: !view.bench[b.dataset.b] }; saveView(); renderTotal();
   });
+  // 오늘 모드: 손익 캔들/선, 일주월년, 지수 비교는 해당 없음
+  ['tmodeSeg', 'tfTotal'].forEach(id => $(id).style.visibility = todayMode ? 'hidden' : '');
+  $('totalLegend').hidden = todayMode;
+  if (todayMode) {
+    const t = LIVE && todayStats();
+    $('totalInfo').innerHTML = LIVE
+      ? `오늘 ${t ? `<span class="${cls(t.diff)}">${signed(t.diff)}원</span> · ` : ''}최근 24시간 평가액 변동 (전일 종가 대비, 5분 간격). 국내장은 낮, 미국장은 밤에 움직임`
+      : '장중 시세를 받는 중입니다…';
+  }
 }
 
 // ───────── 종목 차트: 보이는 구간 최고가 + 현재가의 최고가 대비 하락률 ─────────
@@ -1194,6 +1214,130 @@ const store = {
   clear() { try { localStorage.removeItem(KEY); } catch (e) {} },
 };
 
+// ───────── 실시간(5분) 시세 ─────────
+let RAW = null, LIVE = null, liveAt = 0, liveBusy = false, todayChart = null, todaySeries = null;
+// 갱신 간격: 국내장·미국장 중 하나라도 열려 있으면 1분, 둘 다 닫혀 있으면 10분 (화면 안 볼 땐 요청 안 함)
+// 미국장은 뉴욕 현지 시각으로 판단해서 서머타임(22:30~05:00 ↔ 23:30~06:00)이 자동 반영됨. 공휴일은 구분 안 함
+function zoned(tz) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date()).map(x => [x.type, x.value]));
+  return { wd: p.weekday, min: +p.hour * 60 + +p.minute };
+}
+function marketOpen() {
+  const weekday = d => !['Sat', 'Sun'].includes(d.wd);
+  const kr = zoned('Asia/Seoul'), us = zoned('America/New_York');
+  const krOpen = weekday(kr) && kr.min >= 9 * 60 && kr.min <= 15 * 60 + 35;   // 마감 동시호가까지 여유 5분
+  const usOpen = weekday(us) && us.min >= 9 * 60 + 30 && us.min <= 16 * 60 + 5;
+  return krOpen || usOpen;
+}
+const liveEvery = () => (marketOpen() ? 60 : 10 * 60) * 1000;
+
+// 저장된 일봉에 오늘 장중 시세(시가·고가·저가·현재가)를 오늘 봉으로 덮어써서 계산에 반영
+function withLive(raw) {
+  if (!LIVE) return raw;
+  const ok = LIVE.filter(q => q.ok);
+  const prices = raw.prices.filter(r => !ok.some(q => q.code === String(r[1]) && q.date === String(r[0]).slice(0, 10)));
+  ok.forEach(q => prices.push([q.date, q.code, q.o, q.h, q.l, q.price]));
+  return { ...raw, prices };
+}
+const quote = code => LIVE && LIVE.find(q => q.ok && q.code === code);
+// 전일 종가: 시트에 저장된 공식 일봉 종가 우선 (5분봉 마지막 값은 장 마감 동시호가 전이라 살짝 다름)
+function prevClose(code, date, fallback) {
+  let best = null, bd = '';
+  for (const r of RAW.prices) if (String(r[1]) === code) { const d = String(r[0]).slice(0, 10); if (d < date && d > bd) { bd = d; best = +r[5]; } }
+  return best ?? fallback;
+}
+
+async function liveFetch(force) {
+  if (!PIN || liveBusy || (!force && Date.now() - liveAt < liveEvery() - 5000)) return;
+  liveBusy = true; renderTodayInfo('갱신 중…');
+  const seen = {}, list = [];
+  Object.values(S.pos).forEach(p => { if (p.q > 0 && !seen[p.code]) { seen[p.code] = 1; list.push({ code: p.code, ccy: p.ccy }); } });
+  const res = await post({ pin: PIN, action: 'live', list });
+  liveBusy = false;
+  if (!res.ok) { renderTodayInfo('시세 갱신 실패' + (res.error ? ` (${res.error})` : '')); return; }
+  LIVE = res.quotes; liveAt = Date.now();
+  // 사용자가 보고 있던 차트 위치는 유지
+  const keepT = totalChart.timeScale().getVisibleLogicalRange(), keepK = tickerChart.timeScale().getVisibleLogicalRange();
+  S = compute(withLive(RAW)); renderAll();
+  if (keepT && view.rgT !== 'D1') totalChart.timeScale().setVisibleLogicalRange(keepT);
+  if (keepK) tickerChart.timeScale().setVisibleLogicalRange(keepK);
+}
+setInterval(() => { if (!document.hidden) liveFetch(); }, 15 * 1000); // 15초마다 '갱신할 때 됐나'만 확인 (요청은 간격 지났을 때만)
+document.addEventListener('visibilitychange', () => { if (!document.hidden) liveFetch(); });
+
+// 오늘 변동: 보유 종목 × (현재가×현재 환율 − 전일 종가×전일 환율)
+function todayStats() {
+  const v = S.views[view.f], fq = quote(FX);
+  const fxNow = fq ? fq.price : S.fx, fxPrev = fq ? prevClose(FX, fq.date, fq.prev) : S.fx;
+  let now = 0, base = 0, n = 0;
+  v.holdings.forEach(h => {
+    const q = quote(h.code); if (!q) return;
+    const prev = prevClose(h.code, q.date, q.prev); if (!prev) return;
+    const usd = h.ccy === 'USD';
+    now += h.q * q.price * (usd ? fxNow : 1); base += h.q * prev * (usd ? fxPrev : 1); n++;
+  });
+  return n ? { diff: now - base, pct: base ? (now - base) / base : 0 } : null;
+}
+function renderTodayInfo(status) {
+  const el = $('today'); if (!el) return;
+  const t = LIVE && todayStats();
+  const hm = liveAt ? new Date(liveAt).toTimeString().slice(0, 5) : '';
+  el.innerHTML = (t ? `오늘 <b class="${cls(t.diff)}">${signed(t.diff)}원 (${pct(t.pct)})</b> · ` : '')
+    + (status || (hm ? `${hm} 기준 · ${marketOpen() ? '장중 1분마다' : '장 마감, 10분마다'} 갱신` : '')) + ' <button type="button" id="liveBtn" title="지금 시세 다시 받기">↻</button>';
+  $('liveBtn').onclick = () => liveFetch(true);
+}
+
+// "오늘" 차트: 최근 24시간 동안 보유 종목 평가액이 전일 종가 대비 얼마나 움직였나 (5분 간격, 한국 시간)
+function renderToday() {
+  const el = $('chartToday');
+  if (!todayChart) {
+    todayChart = LightweightCharts.createChart(el, {
+      autoSize: true,
+      layout: { background: { type: 'solid', color: 'transparent' }, textColor: css('--sub'), fontFamily: 'Pretendard Variable, sans-serif' },
+      grid: { vertLines: { visible: false }, horzLines: { color: css('--line') } },
+      rightPriceScale: { borderVisible: false },
+      timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
+      localization: { priceFormatter: p => signed(p), timeFormatter: t => new Date(t * 1000).toISOString().slice(11, 16) },
+      handleScroll: { vertTouchDrag: false },
+    });
+    const a = (c, o) => c + Math.round(o * 255).toString(16).padStart(2, '0');
+    todaySeries = todayChart.addBaselineSeries({
+      baseValue: { type: 'price', price: 0 }, lineWidth: 2, priceLineVisible: false,
+      topLineColor: css('--up'), topFillColor1: a(css('--up'), .22), topFillColor2: a(css('--up'), .02),
+      bottomLineColor: css('--down'), bottomFillColor1: a(css('--down'), .02), bottomFillColor2: a(css('--down'), .22),
+    });
+  }
+  const v = S.views[view.f];
+  if (!LIVE) { todaySeries.setData([]); return; }
+  const fq = quote(FX), fxPrev = fq ? prevClose(FX, fq.date, fq.prev) : S.fx;
+  const fxPts = fq ? fq.pts : [];
+  const hold = v.holdings.map(h => {
+    const q = quote(h.code); if (!q) return null;
+    const pts = q.pts.slice();
+    const lastTs = pts.length ? pts[pts.length - 1][0] : 0;
+    if (q.price != null && pts.length && pts[pts.length - 1][1] !== q.price) pts.push([lastTs + 300, q.price]); // 마감 동시호가 반영
+    return { q: h.q, usd: h.ccy === 'USD', prev: prevClose(h.code, q.date, q.prev), pts };
+  }).filter(Boolean);
+  // 해외 종목은 장이 닫혀 있어도 환율이 움직이면 원화 평가액이 변하니까 환율 시각도 타임라인에 포함
+  const hasUsd = hold.some(x => x.usd);
+  const lastOf = pts => pts.length ? pts[pts.length - 1][0] : 0;
+  const end = Math.max(0, ...hold.map(x => lastOf(x.pts)), hasUsd ? lastOf(fxPts) : 0);
+  const start = end - 24 * 3600;
+  const times = [...new Set([...hold.flatMap(x => x.pts.map(p => p[0])), ...(hasUsd ? fxPts.map(p => p[0]) : [])])]
+    .filter(t => t > start && t <= end).sort((a, b) => a - b);
+  const at = (pts, t, dflt) => { let v = dflt; for (const p of pts) { if (p[0] > t) break; v = p[1]; } return v; };
+  const base = hold.reduce((s, x) => s + x.q * x.prev * (x.usd ? fxPrev : 1), 0);
+  const data = times.map(t => {
+    const fx = at(fxPts, t, fxPrev);
+    let val = 0;
+    hold.forEach(x => { const inWin = x.pts.filter(p => p[0] > start); val += x.q * at(inWin, t, x.prev) * (x.usd ? fx : 1); });
+    return { time: t + 9 * 3600, value: val - base }; // 한국 시간으로 표시
+  });
+  todaySeries.setData(data);
+  todayChart.timeScale().fitContent();
+}
+
 async function post(body) {
   try {
     const r = await fetch(API_URL, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
@@ -1206,7 +1350,7 @@ async function post(body) {
 // 쓰기 요청 후 최신 데이터로 화면 다시 그림
 async function api(body) {
   const res = await post({ pin: PIN, ...body });
-  if (res.ok && res.data) { S = compute(res.data); renderAll(); }
+  if (res.ok && res.data) { RAW = res.data; S = compute(withLive(RAW)); renderAll(); }
   return res;
 }
 
@@ -1223,16 +1367,23 @@ async function load(pin, remember) {
   PIN = pin;
   if (remember) store.set(pin); else store.clear();
   try {
-    S = compute(res.data);
+    RAW = res.data; S = compute(withLive(RAW));
     $('msg').hidden = true; $('app').hidden = false; $('fab').hidden = false;
     if (!chartsReady) createCharts();
     renderAll();
+    liveFetch();
   } catch (e) {
     $('msg').hidden = false;
     $('msg').textContent = '계산 중 오류: ' + e.message + ' (거래 시트 형식을 확인하세요)';
     console.error(e);
   }
 }
+
+$('lockBtn').onclick = () => {
+  store.clear(); PIN = null; LIVE = null; liveAt = 0;
+  $('app').hidden = true; $('fab').hidden = true; $('msg').hidden = true;
+  $('lock').hidden = false; $('pin').value = ''; $('err').textContent = ''; $('pin').focus();
+};
 
 $('lock').onsubmit = ev => {
   ev.preventDefault();
