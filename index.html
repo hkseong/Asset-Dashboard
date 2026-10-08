@@ -329,7 +329,7 @@ function compute(raw) {
   const start = trades[0].d;
   const cal = [...new Set(raw.prices.map(r => String(r[0]).slice(0, 10)))].filter(d => d >= start).sort();
 
-  const pos = {}, cash = {}, marks = {}, last = {};
+  const pos = {}, cash = {}, marks = {}, last = {}, snaps = {};
   let lastFx = 0;
   const fxOn = d => { const f = px[FX]?.[d]; if (f) lastFx = f[3]; return lastFx; };
   const C = acct => cash[acct] ??= { KRW: 0, USD: 0 };
@@ -354,6 +354,9 @@ function compute(raw) {
       }
     } else if (['입금', '이자', '배당', '분배금'].includes(x.t)) C(x.acct)[x.ccy] += x.a;
     else if (['출금', '세금'].includes(x.t)) C(x.acct)[x.ccy] -= x.a;
+    // 문자로 받은 증권사 실제 잔액이 있으면 그 값으로 예수금을 맞춤 (누적 오차 제거)
+    const snap = /잔액=(\d+)/.exec(x.memo || '');
+    if (snap && (x.t === '입금' || x.t === '출금')) { C(x.acct).KRW = +snap[1]; snaps[x.acct] = x.d + ' ' + ((/문자자동 (\d{1,2}:\d{2})/.exec(x.memo) || [])[1] || ''); }
     else if (x.t === '환전') { C(x.acct).KRW -= x.a; C(x.acct).USD += x.a / x.fx; }
     else if (x.t === '재환전') { C(x.acct).KRW += x.a; C(x.acct).USD -= x.a / x.fx; }
   };
@@ -418,7 +421,7 @@ function compute(raw) {
     v.cost = v.holdings.reduce((s, h) => s + h.costK, 0);
   }
 
-  return { tick, px, views, filters, cash, asof, fx: lastFx, trades, pos };
+  return { tick, px, views, filters, cash, snaps, asof, fx: lastFx, trades, pos };
 }
 
 
@@ -667,7 +670,8 @@ function renderCash() {
   $('cash').innerHTML = order.filter(a => S.cash[a]).map(a => {
     const c = S.cash[a]; totalK += c.KRW + c.USD * S.fx;
     const usdLine = Math.abs(c.USD) >= 0.01 ? `<small>${c.USD < 0 ? '−' : '+'} ${usd(Math.abs(c.USD))} (약 ${won(Math.abs(c.USD) * S.fx)}원)</small>` : '';
-    return `<div>${a === '종합' ? '종합(해외)' : a}<b>${won(c.KRW)}원</b>${usdLine}</div>`;
+    const snap = S.snaps[a] ? `<small>증권사 잔액 기준 ${S.snaps[a].slice(5).replace('-', '/')}</small>` : '';
+    return `<div>${a === '종합' ? '종합(해외)' : a}<b>${won(c.KRW)}원</b>${usdLine}${snap}</div>`;
   }).join('');
   $('cashTotal').textContent = '합계 약 ' + won(totalK) + '원';
 }
