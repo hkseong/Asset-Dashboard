@@ -41,7 +41,9 @@
   h2 { font-size: 15px; font-weight: 650; margin: 0; }
 
   .topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
-  .brand { font-size: 20px; font-weight: 750; letter-spacing: -0.02em; }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 750; letter-spacing: -0.02em; }
+  .brandicon { width: 32px; height: 32px; border-radius: 8px; flex: none; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .lockicon { display: block; width: 64px; height: 64px; border-radius: 15px; margin: 0 auto 14px; box-shadow: 0 4px 14px rgba(224,57,62,.25); }
 
   .seg { display: inline-flex; background: var(--soft); border-radius: 10px; padding: 3px; gap: 2px; }
   .seg button {
@@ -193,6 +195,7 @@
 <body>
 <main>
   <form id="lock" class="lock" hidden>
+    <img class="lockicon" src="apple-touch-icon.png?v=3" alt="" width="64" height="64">
     <h1 class="appname">Portfolio</h1>
     <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN" aria-label="PIN">
     <label><input id="remember" type="checkbox" checked> 이 기기에서 기억하기</label>
@@ -203,7 +206,7 @@
 
   <div id="app" hidden>
     <div class="topbar">
-      <div class="brand appname">Portfolio</div>
+      <div class="brand"><img class="brandicon" src="apple-touch-icon.png?v=3" alt="" width="32" height="32"><span class="appname">Portfolio</span></div>
       <div class="seg" id="acctSeg" role="group" aria-label="계좌"></div>
     </div>
 
