@@ -40,7 +40,8 @@
   main { max-width: 1000px; margin: 0 auto; padding: 16px 16px 96px; }
   /* 아이폰 홈 화면 앱으로 열면 상태바 아래 블러(리퀴드 글라스)가 첫 줄을 가려서 조금 내림 */
   /* 홈 화면 앱처럼 상태바가 화면을 덮을 때(안전 영역 > 0)만 블러 피하려고 30px 더 내림. 사파리·맥은 안전 영역이 0이라 그대로 */
-  main { padding-top: calc(16px + min(env(safe-area-inset-top, 0px), 30px)); }
+  /* 아이폰 상태바 블러(리퀴드 글라스)를 피하려고 어디서 열든 위를 넉넉히 비움 */
+  main { padding-top: calc(44px + min(env(safe-area-inset-top, 0px), 30px)); }
   section { background: var(--panel); border-radius: 14px; padding: 18px; margin-bottom: 14px; min-width: 0; }
   .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .head .tools { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -126,6 +127,8 @@
   .dlist .etc { color: var(--sub); font-size: 12px; padding: 2px 0 4px 18px; line-height: 1.5; }
 
   .tablewrap { overflow-x: auto; }
+  .foot span + span::before { content: ' · '; }
+  @media (max-width: 560px) { .foot span { display: block; line-height: 1.7; } .foot span + span::before { content: none; } }
   .foot { max-width: 1000px; margin: -72px auto 0; padding: 0 16px calc(96px + env(safe-area-inset-bottom, 0px)); text-align: center; font-size: 12px; color: var(--sub); }
   .topright { display: flex; align-items: center; gap: 8px; }
   .lockbtn { border: 0; background: var(--soft); color: var(--sub); width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; cursor: pointer; flex: none; }
@@ -348,7 +351,7 @@
 <script>
 // 앱을 열면 항상 맨 위부터 (이전 스크롤 위치 복원 끔)
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-const BUILD = '2026.10.08 19:33'; // 화면 하단 버전 표시 + 새 버전 감지용
+const BUILD = '2026.10.08 19:41'; // 화면 하단 버전 표시 + 새 버전 감지용
 const APP_NAME = 'Portfolio'; // 사이트 이름 (여기만 바꾸면 됨, <title>도 같이)
 document.querySelectorAll('.appname').forEach(e => e.textContent = APP_NAME);
 
@@ -739,7 +742,7 @@ function renderAll() {
   renderCash();
   renderTodayInfo();
   const ver = RAW && RAW.version || {};
-  $('foot').textContent = `화면 ${BUILD} · 서버(Code) ${ver.code || '구버전'} · 초기 데이터(Seed) ${ver.seed || '-'}`;
+  $('foot').innerHTML = `<span>화면 ${BUILD}</span><span>서버(Code) ${esc(ver.code || '구버전')}</span><span>초기 데이터(Seed) ${esc(ver.seed || '-')}</span>`;
 }
 
 function renderTotal() {
