@@ -35,6 +35,8 @@
     padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   main { max-width: 1000px; margin: 0 auto; padding: 16px 16px 96px; }
+  /* 아이폰 홈 화면 앱으로 열면 상태바 아래 블러(리퀴드 글라스)가 첫 줄을 가려서 조금 내림 */
+  @media (display-mode: standalone) { main { padding-top: 34px; } }
   section { background: var(--panel); border-radius: 14px; padding: 18px; margin-bottom: 14px; min-width: 0; }
   .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .head .tools { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -123,7 +125,7 @@
   .topright { display: flex; align-items: center; gap: 8px; }
   .lockbtn { border: 0; background: var(--soft); color: var(--sub); width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; cursor: pointer; flex: none; }
   .lockbtn:hover { color: var(--ink); }
-  .today { font-size: 13px; color: var(--sub); margin-top: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .today { font-size: 13px; color: var(--sub); margin-top: 6px; display: flex; align-items: center; gap: 2px 12px; flex-wrap: wrap; }
   .today b { font-weight: 650; }
   .today button { border: 0; background: none; color: var(--sub); cursor: pointer; font: inherit; font-size: 14px; padding: 0 2px; }
   #chartTicker { position: relative; }
@@ -1283,8 +1285,9 @@ function renderTodayInfo(status) {
   const el = $('today'); if (!el) return;
   const t = LIVE && todayStats();
   const hm = liveAt ? new Date(liveAt).toTimeString().slice(0, 5) : '';
-  el.innerHTML = (t ? `오늘 <b class="${cls(t.diff)}">${signed(t.diff)}원 (${pct(t.pct)})</b> · ` : '')
-    + (status || (hm ? `${hm} 기준 · ${marketOpen() ? '장중 1분마다' : '장 마감, 10분마다'} 갱신` : '')) + ' <button type="button" id="liveBtn" title="지금 시세 다시 받기">↻</button>';
+  el.innerHTML = (t ? `<span>오늘 <b class="${cls(t.diff)}">${signed(t.diff)}원 (${pct(t.pct)})</b></span>` : '')
+    + `<span>${status || (hm ? `${hm} 기준 · ${marketOpen() ? '장중 1분마다' : '장 마감, 10분마다'} 갱신` : '')}`
+    + ' <button type="button" id="liveBtn" title="지금 시세 다시 받기">↻</button></span>';
   $('liveBtn').onclick = () => liveFetch(true);
 }
 
