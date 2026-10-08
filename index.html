@@ -115,6 +115,8 @@
   .dlist .etc { color: var(--sub); font-size: 12px; padding: 2px 0 4px 18px; line-height: 1.5; }
 
   .tablewrap { overflow-x: auto; }
+  tfoot td { font-weight: 650; border-bottom: 0; border-top: 2px solid var(--line); }
+  .badge { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 5px; margin-left: 6px; border: 1px solid var(--line); color: var(--sub); }
   table { width: 100%; border-collapse: collapse; font-size: 14px; white-space: nowrap; }
   th, td { padding: 10px 8px; text-align: right; border-bottom: 1px solid var(--line); }
   th:first-child, td:first-child { text-align: left; }
@@ -247,8 +249,8 @@
     </section>
 
     <section>
-      <div class="head"><h2>보유 종목</h2><div class="seg" id="pieSeg" role="group" aria-label="비중 기준"></div></div>
-      <div class="holdgrid">
+      <div class="head"><div class="seg" id="holdTab" role="group" aria-label="보유·실현"></div><div class="seg" id="pieSeg" role="group" aria-label="비중 기준"></div></div>
+      <div class="holdgrid" id="holdWrap">
         <div class="donut" id="donut"></div>
         <div class="tablewrap">
           <table>
@@ -256,6 +258,14 @@
             <tbody id="rows"></tbody>
           </table>
         </div>
+      </div>
+      <div class="tablewrap" id="realWrap" hidden>
+        <table>
+          <thead><tr><th>종목</th><th>매도금액</th><th>판 수량의 원가</th><th>실현손익</th><th>수익률</th><th>보유 기간</th></tr></thead>
+          <tbody id="realRows"></tbody>
+          <tfoot id="realFoot"></tfoot>
+        </table>
+        <div class="note">일부만 판 종목은 판 수량만큼의 손익입니다. 원화 기준이라 해외 종목은 환율 변동이 포함됩니다.</div>
       </div>
     </section>
 
@@ -326,6 +336,8 @@ const qty = q => Number.isInteger(q) ? String(q) : q.toFixed(6).replace(/0+$/, '
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const EPS = 1e-9;
 const FX = 'USDKRW';
+// 벤치마크 지수: [코드, 이름, 통화, 선 색]
+const BENCH = [['IDX_SPX', 'S&P500', 'USD', '#14a3a3'], ['IDX_NDX', '나스닥100', 'USD', '#8a5cf0'], ['IDX_KOSPI', '코스피', 'KRW', '#e8850c']];
 
 // 별칭이 없으면 운용사 브랜드를 떼서 자동으로 짧게
 const BRANDS = /^(TIGER|KODEX|PLUS|ACE|RISE|SOL|HANARO|KOSEF|ARIRANG|KIWOOM|1Q|TIME|KoAct|WON|BNK|파워|마이티|히어로즈|TRUSTON|UNICORN)\s+/i;
@@ -365,17 +377,18 @@ function compute(raw) {
   const apply = x => {
     if (x.t === '매수' || x.t === '매도') {
       const k = x.acct + '|' + x.code;
-      const p = pos[k] ??= { acct: x.acct, code: x.code, ccy: x.ccy, q: 0, costN: 0, costK: 0, realized: 0 };
+      const p = pos[k] ??= { acct: x.acct, code: x.code, ccy: x.ccy, q: 0, costN: 0, costK: 0, realized: 0, sellK: 0, soldCost: 0, first: null, lastSell: null };
       const fxT = x.ccy === 'USD' ? (x.fx > 1 ? x.fx : lastFx || 1) : 1;
       const m = ((marks[k] ??= {})[x.d] ??= { b: 0, s: 0 });
       const fl = (flow[x.acct] ??= { buy: 0, sell: 0 });
       if (x.t === '매수') {
-        p.q += x.q; p.costN += x.a; p.costK += x.a * fxT; m.b += x.q; fl.buy += x.a * fxT;
+        p.q += x.q; p.costN += x.a; p.costK += x.a * fxT; m.b += x.q; fl.buy += x.a * fxT; p.first ??= x.d;
         C(x.acct)[x.ccy] -= x.a + x.fee;
       } else {
         const r = p.q > EPS ? x.q / p.q : 0;
         const outN = p.costN * r, outK = p.costK * r;
         p.realized += (x.a - x.fee - x.tax) * fxT - outK;
+        p.sellK += (x.a - x.fee - x.tax) * fxT; p.soldCost += outK; p.lastSell = x.d;
         p.costN -= outN; p.costK -= outK; p.q -= x.q;
         if (p.q < 1e-7) { p.q = 0; p.costN = 0; p.costK = 0; }
         m.s += x.q; fl.sell += (x.a - x.fee - x.tax) * fxT;
@@ -427,7 +440,7 @@ function compute(raw) {
         }
       }
       for (const a in flow) if (inF(f, a)) { buy += flow[a].buy; sell += flow[a].sell; }
-      views[f].series.push({ time: d, val, cost, o, hi, lo, realized, buy, sell });
+      views[f].series.push({ time: d, val, cost, o, hi, lo, realized, buy, sell, fx: lastFx });
       for (const c in agg) (views[f].avg[c] ??= []).push(agg[c].q > 0 ? { time: d, value: agg[c].costN / agg[c].q } : { time: d });
     }
     for (const k in flow) delete flow[k];
@@ -461,6 +474,34 @@ function compute(raw) {
     v.realized = realized;
     v.val = v.holdings.reduce((s, h) => s + h.val, 0);
     v.cost = v.holdings.reduce((s, h) => s + h.costK, 0);
+
+    // 실현 손익 목록: 한 번이라도 판 종목 (전량 정리 + 일부 매도)
+    const rz = {};
+    for (const k in pos) {
+      const p = pos[k];
+      if (!inF(f, p.acct) || !p.sellK) continue;
+      const a = rz[p.code] ??= { code: p.code, ccy: p.ccy, realized: 0, sellK: 0, soldCost: 0, held: false, first: p.first, lastSell: p.lastSell, accts: new Set() };
+      a.realized += p.realized; a.sellK += p.sellK; a.soldCost += p.soldCost; a.held ||= p.q > 0; a.accts.add(p.acct);
+      if (p.first < a.first) a.first = p.first;
+      if (p.lastSell > a.lastSell) a.lastSell = p.lastSell;
+    }
+    v.realizedRows = Object.values(rz).map(a => ({ ...a, name: tick[a.code]?.name || a.code, r: a.soldCost ? a.realized / a.soldCost : 0 }))
+      .sort((x, y) => x.lastSell < y.lastSell ? 1 : -1);
+
+    // 벤치마크: 같은 날 같은 금액으로 지수를 사고 팔았다면 누적 손익이 얼마였을지 (원화)
+    v.bench = {};
+    for (const [code, , ccy] of BENCH) {
+      if (!px[code]) continue;
+      let units = 0, inSum = 0, outSum = 0, lastP = 0;
+      v.bench[code] = v.series.map(s => {
+        const b = px[code][s.time];
+        if (b) lastP = b[3] * (ccy === 'USD' ? (s.fx || 1) : 1);
+        if (!lastP) return { time: s.time };
+        if (s.buy) { units += s.buy / lastP; inSum += s.buy; }
+        if (s.sell) { const u = Math.min(units, s.sell / lastP); units -= u; outSum += s.sell; }
+        return { time: s.time, value: units * lastP + outSum - inSum };
+      });
+    }
   }
 
   return { tick, px, views, filters, cash, snaps, asof, fx: lastFx, trades, pos };
@@ -501,10 +542,11 @@ function toPeriodEnd(points, tf, dates) { // 선 데이터: 묶음별 마지막 
 
 // ───────── 화면 상태 ─────────
 let S, PIN = null;
-const view = { f: '전체', tfT: 'D', tfK: 'D', mode: 'candle', tmode: 'pnl', flows: true, rgT: 'ALL', rgK: 'ALL', avg: true, marks: true, pie: 'code', showClosed: false, code: null };
+const view = { f: '전체', tfT: 'D', tfK: 'D', mode: 'candle', tmode: 'pnl', rgT: 'ALL', rgK: 'ALL', bench: {}, holdTab: 'hold', avg: true, marks: true, pie: 'code', showClosed: false, code: null };
 try { Object.assign(view, JSON.parse(localStorage.getItem('folioView') || '{}'), { code: null, showClosed: false }); } catch (e) {}
 const saveView = () => { try { const { code, showClosed, ...rest } = view; localStorage.setItem('folioView', JSON.stringify(rest)); } catch (e) {} };
 
+let benchSeries = {};
 let totalChart, sVal, sCost, sPnl, tickerChart, candle, closeLine, avgSeries, axTotal, axTicker;
 // 기간 버튼: 마지막 봉 기준으로 며칠 전부터 보여줄지
 const RANGES = [['W1', '1주', 7], ['M1', '1개월', 31], ['M3', '3개월', 92], ['M6', '6개월', 183], ['Y1', '1년', 366], ['ALL', '전체', 0]];
@@ -609,6 +651,9 @@ function createCharts() {
     upColor: css('--up'), downColor: css('--down'), borderVisible: false,
     wickUpColor: css('--up'), wickDownColor: css('--down'), priceLineVisible: false,
   });
+  BENCH.forEach(([code, , , color]) => {
+    benchSeries[code] = totalChart.addLineSeries({ color, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, visible: false });
+  });
   axTotal = attachAxis(totalChart, $('chartTotal'));
   tickerChart = baseChart($('chartTicker'));
   axTicker = attachAxis(tickerChart, $('chartTicker'));
@@ -642,6 +687,7 @@ function renderAll() {
   renderTotal();
   renderTable();
   renderDonut();
+  renderHoldTab();
   if (!view.code || ![...v.holdings, ...v.closed].some(h => h.code === view.code)) view.code = (v.holdings[0] || v.closed[0])?.code;
   seg($('modeSeg'), [['candle', '캔들'], ['line', '선']], view.mode, m => { view.mode = m; saveView(); showTicker(view.code); });
   seg($('tfTicker'), TF, view.tfK, tf => { view.tfK = tf; saveView(); showTicker(view.code); });
@@ -671,6 +717,16 @@ function renderTotal() {
   sVal.setData(toPeriodEnd(ser.map(s => ({ time: s.time, value: s.val })), view.tfT, dates));
   sCost.setData(toPeriodEnd(ser.map(s => ({ time: s.time, value: s.cost })), view.tfT, dates));
 
+  const bench = S.views[view.f].bench || {};
+  const benchNow = {};
+  BENCH.forEach(([code]) => {
+    const on = isPnl && !!view.bench[code] && !!bench[code];
+    benchSeries[code].applyOptions({ visible: on });
+    const pts = (bench[code] || []).filter(p => p.time >= (dates[0] || ''));
+    benchSeries[code].setData(on ? toPeriodEnd(pts, view.tfT, dates) : []);
+    const lastPt = [...pts].reverse().find(p => p.value != null);
+    if (lastPt) benchNow[code] = lastPt.value;
+  });
   axTotal.set(toCandles(pnl, view.tfT).map(b => b.time), view.tfT);
   applyRange(totalChart, dates[dates.length - 1], view.rgT);
 
@@ -679,10 +735,36 @@ function renderTotal() {
   $('totalInfo').innerHTML = isPnl
     ? `누적 손익 <span class="${cls(nowPnl)}">${signed(nowPnl)}원</span> (평가손익 + 실현손익, 돈을 넣고 빼도 안 변하고 주가로만 움직임)`
     : '평가액과 매입금액의 간격이 평가손익';
-  $('totalLegend').innerHTML = (isPnl
-    ? '<span>캔들: 누적 손익</span>'
-    : '<span><i style="background:var(--total)"></i>평가액</span><span><i style="background:var(--sub)"></i>매입금액</span>')
-;
+  $('totalLegend').innerHTML = isPnl
+    ? '<span>캔들: 누적 손익</span><span style="margin-left:6px">같은 날 같은 금액으로 지수를 샀다면</span>'
+      + BENCH.filter(([c]) => bench[c]).map(([code, name, , color]) => `<button type="button" class="tg bench" data-b="${code}" aria-pressed="${!!view.bench[code]}">`
+        + `<i style="background:${color}"></i>${name}${view.bench[code] && benchNow[code] != null ? ` <span class="${cls(benchNow[code])}">${signed(benchNow[code])}</span>` : ''}</button>`).join('')
+    : '<span><i style="background:var(--total)"></i>평가액</span><span><i style="background:var(--sub)"></i>매입금액</span>';
+  $('totalLegend').querySelectorAll('.bench').forEach(b => b.onclick = () => {
+    view.bench = { ...view.bench, [b.dataset.b]: !view.bench[b.dataset.b] }; saveView(); renderTotal();
+  });
+}
+
+function renderHoldTab() {
+  seg($('holdTab'), [['hold', '보유 종목'], ['real', '실현 손익']], view.holdTab, k => { view.holdTab = k; saveView(); renderHoldTab(); });
+  const real = view.holdTab === 'real';
+  $('holdWrap').hidden = real; $('pieSeg').hidden = real; $('realWrap').hidden = !real;
+  if (!real) return;
+  const v = S.views[view.f], rows = v.realizedRows || [];
+  const ymd = d => d ? d.slice(2).replace(/-/g, '.') : '';
+  $('realRows').innerHTML = rows.map(a => `
+    <tr data-code="${esc(a.code)}" title="${esc(a.name)}">
+      <td>${esc(label(a.code))}<span class="badge">${a.held ? '일부 매도' : '정리'}</span>${view.f === '전체' ? `<small>${[...a.accts].join('·')}</small>` : ''}</td>
+      <td>${won(a.sellK)}</td><td>${won(a.soldCost)}</td>
+      <td class="${cls(a.realized)}">${signed(a.realized)}</td><td class="${cls(a.r)}">${pct(a.r)}</td>
+      <td>${ymd(a.first)} ~ ${ymd(a.lastSell)}</td>
+    </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--sub)">판 종목이 없습니다</td></tr>';
+  const sum = rows.reduce((s, a) => ({ sell: s.sell + a.sellK, cost: s.cost + a.soldCost, r: s.r + a.realized }), { sell: 0, cost: 0, r: 0 });
+  $('realFoot').innerHTML = rows.length ? `<tr><td>합계 ${rows.length}종목</td><td>${won(sum.sell)}</td><td>${won(sum.cost)}</td>
+    <td class="${cls(sum.r)}">${signed(sum.r)}</td><td class="${cls(sum.r)}">${pct(sum.cost ? sum.r / sum.cost : 0)}</td><td></td></tr>` : '';
+  document.querySelectorAll('#realRows tr[data-code]').forEach(tr => tr.onclick = () => {
+    if (S.px[tr.dataset.code]) { showTicker(tr.dataset.code); $('chartTicker').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+  });
 }
 
 function renderTable() {
