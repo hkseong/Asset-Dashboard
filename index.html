@@ -115,6 +115,9 @@
   .dlist .etc { color: var(--sub); font-size: 12px; padding: 2px 0 4px 18px; line-height: 1.5; }
 
   .tablewrap { overflow-x: auto; }
+  #chartTicker { position: relative; }
+  .peakpin { position: absolute; top: 6px; z-index: 3; pointer-events: none; font-size: 11px; line-height: 1.4;
+    background: var(--sub); color: var(--panel); padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
   tfoot td { font-weight: 650; border-bottom: 0; border-top: 2px solid var(--line); }
   .badge { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 5px; margin-left: 6px; border: 1px solid var(--line); color: var(--sub); }
   table { width: 100%; border-collapse: collapse; font-size: 14px; white-space: nowrap; }
@@ -658,6 +661,9 @@ function createCharts() {
   axTotal = attachAxis(totalChart, $('chartTotal'));
   tickerChart = baseChart($('chartTicker'));
   axTicker = attachAxis(tickerChart, $('chartTicker'));
+  const rePin = () => { if (!pinRaf) pinRaf = requestAnimationFrame(placePeakPin); };
+  tickerChart.timeScale().subscribeVisibleLogicalRangeChange(rePin);
+  tickerChart.timeScale().subscribeSizeChange(rePin);
   candle = tickerChart.addCandlestickSeries({
     upColor: css('--up'), downColor: css('--down'), borderVisible: false,
     wickUpColor: css('--up'), wickDownColor: css('--down'), priceLineVisible: false,
@@ -801,26 +807,39 @@ async function loadHistory(code, ccy) {
 function updatePeak() {
   peakRaf = 0;
   if (peakLine && peakSeries) { peakSeries.removePriceLine(peakLine); peakLine = null; }
-  const el = $('peakInfo');
+  S._kpeak = null;
   const daily = (S._kdaily || []).filter(b => !S._kpeakFrom || b.time >= S._kpeakFrom);
-  if (!daily.length) { if (el) el.textContent = ''; return; }
-  let top = daily[0];
-  daily.forEach(b => { if (b.high > top.high) top = b; });
-  const now = daily[daily.length - 1].close; // 현재가 = 가장 최근 종가
-  const dd = now / top.high - 1;
-  const fmt = p => S._kccy === 'USD' ? usd(p) : won(p) + '원';
-  const base = S._kpeakFrom ? '매수 이후' : '상장 이후';
-  if (dd >= -0.0005 || top.time === daily[daily.length - 1].time) {
-    if (el) el.innerHTML = `· ${base} 최고가 부근`;
-    return;
+  if (daily.length) {
+    let top = daily[0];
+    daily.forEach(b => { if (b.high > top.high) top = b; });
+    const dd = daily[daily.length - 1].close / top.high - 1; // 현재가 = 가장 최근 종가
+    if (dd < -0.0005 && top.time !== daily[daily.length - 1].time) { // 지금이 최고가면 표시 안 함
+      const base = S._kpeakFrom ? '매수 이후' : '상장 이후';
+      peakSeries = S._kcandle ? candle : closeLine;
+      peakLine = peakSeries.createPriceLine({
+        price: top.high, color: css('--sub'), lineWidth: 1, lineStyle: 2, axisLabelVisible: true,
+        title: `${base} 최고가 대비 ${(dd * 100).toFixed(1)}%`,
+      });
+      S._kpeak = { price: top.high, dd, base };
+    }
   }
-  if (el) el.innerHTML = `· ${base} 최고가 ${fmt(top.high)} 대비 <span class="down">${(dd * 100).toFixed(1)}%</span>`;
-  peakSeries = S._kcandle ? candle : closeLine;
-  peakLine = peakSeries.createPriceLine({
-    price: top.high, color: css('--sub'), lineWidth: 1, lineStyle: 2, axisLabelVisible: true,
-    title: `${base} 최고가 대비 ${(dd * 100).toFixed(1)}%`,
-  });
+  placePeakPin();
 }
+
+// 확대해서 최고가가 화면 위로 벗어나면, y축 맨 위에 최고가 꼬리표를 고정
+function placePeakPin() {
+  pinRaf = 0;
+  let pin = $('peakPin');
+  const k = S._kpeak;
+  const y = k && peakSeries ? peakSeries.priceToCoordinate(k.price) : null;
+  if (!k || (y != null && y >= 0)) { if (pin) pin.hidden = true; return; }
+  if (!pin) { pin = document.createElement('div'); pin.id = 'peakPin'; pin.className = 'peakpin'; $('chartTicker').appendChild(pin); }
+  const fmt = p => S._kccy === 'USD' ? usd(p) : won(p);
+  pin.textContent = `↑ ${k.base} 최고가 ${fmt(k.price)} (${(k.dd * 100).toFixed(1)}%)`;
+  pin.style.right = (tickerChart.priceScale('right').width() + 6) + 'px';
+  pin.hidden = false;
+}
+let pinRaf = 0;
 
 function renderHoldTab() {
   seg($('holdTab'), [['hold', '보유 종목'], ['real', '실현 손익']], view.holdTab, k => { view.holdTab = k; saveView(); renderHoldTab(); });
@@ -989,7 +1008,7 @@ function showTicker(code) {
   const head = `<span class="nm">${esc(label(code))}</span><button type="button" class="icon-btn" id="aliasBtn" title="별칭 바꾸기">✎</button>`;
   $('tinfo').innerHTML = head + (h
     ? `${qty(h.q)}주, 평단 ${money(h.avgN, ccy)}, 평가손익 <span class="${cls(h.pl)}">${signed(h.pl)}원</span>`
-    : c ? `보유하지 않음, 실현손익 <span class="${cls(c.realized)}">${signed(c.realized)}원</span>` : '') + '<span id="peakInfo"></span>';
+    : c ? `보유하지 않음, 실현손익 <span class="${cls(c.realized)}">${signed(c.realized)}원</span>` : '');
   updatePeak();
   $('aliasBtn').onclick = async () => {
     const cur = S.tick[code]?.alias || label(code);
