@@ -657,6 +657,7 @@ function createCharts() {
   axTotal = attachAxis(totalChart, $('chartTotal'));
   tickerChart = baseChart($('chartTicker'));
   axTicker = attachAxis(tickerChart, $('chartTicker'));
+  tickerChart.timeScale().subscribeVisibleLogicalRangeChange(() => { if (!peakRaf) peakRaf = requestAnimationFrame(updatePeak); });
   candle = tickerChart.addCandlestickSeries({
     upColor: css('--up'), downColor: css('--down'), borderVisible: false,
     wickUpColor: css('--up'), wickDownColor: css('--down'), priceLineVisible: false,
@@ -742,6 +743,30 @@ function renderTotal() {
     : '<span><i style="background:var(--total)"></i>평가액</span><span><i style="background:var(--sub)"></i>매입금액</span>';
   $('totalLegend').querySelectorAll('.bench').forEach(b => b.onclick = () => {
     view.bench = { ...view.bench, [b.dataset.b]: !view.bench[b.dataset.b] }; saveView(); renderTotal();
+  });
+}
+
+// ───────── 종목 차트: 보이는 구간 최고가 + 현재가의 최고가 대비 하락률 ─────────
+let peakLine = null, peakSeries = null, peakRaf = 0;
+function updatePeak() {
+  peakRaf = 0;
+  if (peakLine && peakSeries) { peakSeries.removePriceLine(peakLine); peakLine = null; }
+  const bars = S._kbars || [];
+  if (!bars.length) return;
+  const vr = tickerChart.timeScale().getVisibleRange();
+  const inView = vr ? bars.filter(b => b.time >= vr.from && b.time <= vr.to) : bars;
+  if (!inView.length) return;
+  const useHigh = S._kcandle; // 캔들은 고가, 선은 종가 기준
+  let top = inView[0];
+  inView.forEach(b => { if ((useHigh ? b.high : b.close) > (useHigh ? top.high : top.close)) top = b; });
+  const peak = useHigh ? top.high : top.close;
+  const now = bars[bars.length - 1].close; // 현재가 = 가장 최근 종가
+  const dd = now / peak - 1;
+  if (dd >= -0.0005 || top.time === bars[bars.length - 1].time) return; // 지금이 최고가면 표시 안 함
+  peakSeries = S._kcandle ? candle : closeLine;
+  peakLine = peakSeries.createPriceLine({
+    price: peak, color: css('--sub'), lineWidth: 1, lineStyle: 2, axisLabelVisible: true,
+    title: `최고가 대비 ${(dd * 100).toFixed(1)}%`,
   });
 }
 
@@ -897,8 +922,10 @@ function showTicker(code) {
   candle.setMarkers(isCandle ? markers : []);
   closeLine.setMarkers(isCandle ? [] : markers);
   S._lastShown = shown[shown.length - 1];
+  S._kbars = bars; S._kccy = ccy; S._kcandle = isCandle;
   axTicker.set(bars.map(b => b.time), view.tfK);
   applyRange(tickerChart, S._lastShown, view.rgK);
+  updatePeak();
 
   const head = `<span class="nm">${esc(label(code))}</span><button type="button" class="icon-btn" id="aliasBtn" title="별칭 바꾸기">✎</button>`;
   $('tinfo').innerHTML = head + (h
