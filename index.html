@@ -39,7 +39,7 @@
   }
   main { max-width: 1000px; margin: 0 auto; padding: 16px 16px 24px; }
   /* 아이폰 홈 화면 앱으로 열면 상태바 아래 블러(리퀴드 글라스)가 첫 줄을 가려서 조금 내림 */
-  /* 홈 화면 앱처럼 상태바가 화면을 덮을 때(안전 영역 > 0)만 블러 피하려고 34px 더 내림. 사파리·맥은 안전 영역이 0이라 그대로 */
+  /* 홈 화면 앱처럼 상태바가 화면을 덮을 때(안전 영역 > 0)만 블러 피하려고 30px 더 내림. 사파리·맥은 안전 영역이 0이라 그대로 */
   /* 아이폰 상태바 블러(리퀴드 글라스)를 피하려고 어디서 열든 위를 넉넉히 비움 */
   main { padding-top: calc(34px + min(env(safe-area-inset-top, 0px), 30px)); }
   section { background: var(--panel); border-radius: 14px; padding: 18px; margin-bottom: 14px; min-width: 0; }
@@ -131,6 +131,7 @@
   .lastsms:empty { display: none; }
   @media (max-width: 560px) { .stats { grid-template-columns: repeat(2, 1fr); row-gap: 12px; } }
   .xprev { font-size: 13px; margin-bottom: 12px; }
+  .xwarn { background: color-mix(in srgb, var(--up) 12%, transparent); color: var(--ink); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; font-size: 13px; }
   .xprev .sumline { display: flex; gap: 6px 14px; flex-wrap: wrap; margin-bottom: 8px; }
   .xprev .sumline b { font-weight: 650; }
   .xprev .it { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
@@ -381,7 +382,7 @@
 <script>
 // 앱을 열면 항상 맨 위부터 (이전 스크롤 위치 복원 끔)
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-const BUILD = '2026.10.09 01:17'; // 화면 하단 버전 표시 + 새 버전 감지용
+const BUILD = '2026.10.09 01:26'; // 화면 하단 버전 표시 + 새 버전 감지용
 const APP_NAME = 'Portfolio'; // 사이트 이름 (여기만 바꾸면 됨, <title>도 같이)
 document.querySelectorAll('.appname').forEach(e => e.textContent = APP_NAME);
 
@@ -1295,7 +1296,7 @@ function renderRecent() {
 // ───────── 엑셀(거래내역) 업로드 ─────────
 // 미래에셋 거래내역 파일 두 형식(2줄 1건 형식 / 외화금액 열 있는 1줄 형식)을 읽어서
 // 결제일 → 체결일 역산, 종목 매칭, 환율 계산 후 이미 있는 기록과 대조해 빠진 것만 추가
-const XL = { recs: null, acct: null, plan: null };
+const XL = { recs: null, acct: null, guess: null, plan: null };
 const XNAMES = {
   '엔비디아': 'NVDA', '테슬라': 'TSLA', 'PROSHARES QQQ 2X': 'QLD', '아이온큐': 'IONQ', '인텔': 'INTC', '마이크로소프트': 'MSFT',
   'ISHARES SILVER TRUST': 'SLV', 'ISHARES 20+Y TREASURY BOND': 'TLT', 'SPDR HEALTH CARE SELECT SECTOR': 'XLV',
@@ -1445,7 +1446,7 @@ function setTab(t) {
   if (t === 'file') drawFile();
 }
 function drawFile() {
-  seg($('xAcct'), ['ISA', '종합', 'CMA'].map(a => [a, a === '종합' ? '종합(해외)' : a]), XL.acct, a => { XL.acct = a; drawFile(); });
+  seg($('xAcct'), ['ISA', '종합', 'CMA'].map(a => [a, a === '종합' ? '종합(해외)' : a]), XL.acct, a => { XL.acct = a; $('xStatus').textContent = ''; drawFile(); });
   const el = $('xPreview');
   if (!XL.recs) { el.innerHTML = ''; $('xApply').hidden = true; return; }
   XL.plan = buildPlan(XL.recs, XL.acct);
@@ -1469,7 +1470,10 @@ function drawFile() {
     try { const sv = xSaved(); sv[inp.dataset.nm] = v; localStorage.setItem('xlsNames', JSON.stringify(sv)); } catch (e) {}
     drawFile();
   });
-  $('xApply').hidden = !(P.add.length || P.fixes.length);
+  // 파일 내용으로 추정한 계좌와 다르게 고르면 반영 막음 (다른 계좌 기록이 복사되는 사고 방지)
+  const wrong = XL.guess && XL.acct !== XL.guess;
+  if (wrong) el.insertAdjacentHTML('afterbegin', `<div class="xwarn">이 파일은 <b>${XL.guess === '종합' ? '종합(해외)' : XL.guess}</b> 계좌 내역으로 보여요. 다른 계좌로 반영하면 기록이 잘못 복사됩니다.</div>`);
+  $('xApply').hidden = wrong || !(P.add.length || P.fixes.length);
   $('xApply').textContent = `반영하기 (추가 ${P.add.length}, 교정 ${P.fixes.length})`;
 }
 $('xFile').addEventListener('change', async () => {
@@ -1480,7 +1484,7 @@ $('xFile').addEventListener('change', async () => {
     let text = new TextDecoder('utf-8').decode(buf);
     if (!/<table/i.test(text)) text = new TextDecoder('euc-kr').decode(buf);
     if (!/<table/i.test(text)) throw new Error('이 파일은 읽을 수 없어요. 미래에셋에서 내려받은 거래내역 .xls 파일을 그대로 올려주세요.');
-    XL.recs = parseXls(text); XL.acct = guessAcct(XL.recs);
+    XL.recs = parseXls(text); XL.acct = XL.guess = guessAcct(XL.recs);
     drawFile();
   } catch (e) { XL.recs = null; drawFile(); $('xStatus').textContent = e.message; $('xStatus').className = 'status err'; }
 });
