@@ -15,12 +15,12 @@
 <style>
   :root {
     --bg: #f5f6f8; --panel: #ffffff; --ink: #1b1f27; --sub: #6b7280; --line: #e4e7ec; --soft: #eef0f3;
-    --up: #e0393e; --down: #2b6fe0; --total: #1b1f27; --avg: #f29d0f;
+    --up: #e0393e; --down: #2b6fe0; --total: #1b1f27; --avg: #f29d0f; --flow: #7b5cf0;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #121418; --panel: #1b1e24; --ink: #eceef2; --sub: #8b93a1; --line: #2a2e36; --soft: #252932;
-      --up: #ff5a5f; --down: #4c8dff; --total: #eceef2; --avg: #ffb02e;
+      --up: #ff5a5f; --down: #4c8dff; --total: #eceef2; --avg: #ffb02e; --flow: #a48bff;
     }
   }
   * { box-sizing: border-box; }
@@ -88,7 +88,17 @@
   .holdgrid { display: grid; grid-template-columns: 260px 1fr; gap: 18px; align-items: start; }
   @media (max-width: 720px) { .holdgrid { grid-template-columns: 1fr; } }
   .donut { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-  .donut svg { width: 200px; height: 200px; }
+  .donut { position: relative; }
+  .donut svg { width: 200px; height: 200px; touch-action: manipulation; }
+  .donut circle.seg { cursor: pointer; transition: stroke-width .12s; }
+  .donut circle.seg.on { stroke-width: 32; }
+  .tip {
+    position: absolute; z-index: 5; pointer-events: none; transform: translate(-50%, calc(-100% - 12px));
+    background: var(--ink); color: var(--panel); border-radius: 8px; padding: 7px 10px; font-size: 12px; line-height: 1.45;
+    white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.18);
+  }
+  .tip b { font-size: 13px; }
+  .tip .etc { white-space: normal; width: 200px; margin-top: 3px; opacity: .85; }
   .dlist { width: 100%; font-size: 13px; }
   .dlist .it { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; padding: 4px 0; }
   .dlist .sw { width: 10px; height: 10px; border-radius: 3px; }
@@ -192,9 +202,16 @@
     </section>
 
     <section>
-      <div class="head"><h2>투자 추이</h2><div class="seg" id="tfTotal" role="group" aria-label="투자 추이 단위"></div></div>
+      <div class="head">
+        <h2>투자 추이</h2>
+        <div class="tools">
+          <div class="seg" id="tmodeSeg" role="group" aria-label="투자 추이 형태"></div>
+          <div class="seg" id="tfTotal" role="group" aria-label="투자 추이 단위"></div>
+        </div>
+      </div>
+      <div class="tinfo" id="totalInfo"></div>
       <div class="chart" id="chartTotal"></div>
-      <div class="legend"><span><i style="background:var(--total)"></i>평가액</span><span><i style="background:var(--sub)"></i>매입금액</span></div>
+      <div class="legend" id="totalLegend"></div>
     </section>
 
     <section>
@@ -329,7 +346,7 @@ function compute(raw) {
   const start = trades[0].d;
   const cal = [...new Set(raw.prices.map(r => String(r[0]).slice(0, 10)))].filter(d => d >= start).sort();
 
-  const pos = {}, cash = {}, marks = {}, last = {}, snaps = {};
+  const pos = {}, cash = {}, marks = {}, last = {}, snaps = {}, flow = {};
   let lastFx = 0;
   const fxOn = d => { const f = px[FX]?.[d]; if (f) lastFx = f[3]; return lastFx; };
   const C = acct => cash[acct] ??= { KRW: 0, USD: 0 };
@@ -340,8 +357,9 @@ function compute(raw) {
       const p = pos[k] ??= { acct: x.acct, code: x.code, ccy: x.ccy, q: 0, costN: 0, costK: 0, realized: 0 };
       const fxT = x.ccy === 'USD' ? (x.fx > 1 ? x.fx : lastFx || 1) : 1;
       const m = ((marks[k] ??= {})[x.d] ??= { b: 0, s: 0 });
+      const fl = (flow[x.acct] ??= { buy: 0, sell: 0 });
       if (x.t === '매수') {
-        p.q += x.q; p.costN += x.a; p.costK += x.a * fxT; m.b += x.q;
+        p.q += x.q; p.costN += x.a; p.costK += x.a * fxT; m.b += x.q; fl.buy += x.a * fxT;
         C(x.acct)[x.ccy] -= x.a + x.fee;
       } else {
         const r = p.q > EPS ? x.q / p.q : 0;
@@ -349,7 +367,7 @@ function compute(raw) {
         p.realized += (x.a - x.fee - x.tax) * fxT - outK;
         p.costN -= outN; p.costK -= outK; p.q -= x.q;
         if (p.q < 1e-7) { p.q = 0; p.costN = 0; p.costK = 0; }
-        m.s += x.q;
+        m.s += x.q; fl.sell += (x.a - x.fee - x.tax) * fxT;
         C(x.acct)[x.ccy] += x.a - x.fee - x.tax;
       }
     } else if (['입금', '이자', '배당', '분배금'].includes(x.t)) C(x.acct)[x.ccy] += x.a;
@@ -366,6 +384,13 @@ function compute(raw) {
   const inF = (f, acct) => f === '전체' || f === acct;
   const views = Object.fromEntries(filters.map(f => [f, { series: [], avg: {} }]));
 
+  // 그날 시가/고가/저가 기준 평가액 (시세 없는 날은 종가 평가액 그대로)
+  const valueOHL = (p, d) => {
+    const b = px[p.code]?.[d];
+    if (!b) { const v = valueK(p, d); return [v, v, v]; }
+    const k = p.q * (p.ccy === 'USD' ? (fxOn(d) || 1) : 1);
+    return [b[0] * k, b[1] * k, b[2] * k];
+  };
   const valueK = (p, d) => {
     const c = last[p.code];
     if (c == null) return p.costK; // 시세 없는 종목은 매입가로 평가
@@ -378,17 +403,23 @@ function compute(raw) {
     while (i < trades.length && trades[i].d <= d) apply(trades[i++]);
     for (const c in px) if (c !== FX && px[c][d]) last[c] = px[c][d][3];
     for (const f of filters) {
-      let val = 0, cost = 0;
+      let val = 0, cost = 0, o = 0, hi = 0, lo = 0, realized = 0, buy = 0, sell = 0;
       const agg = {};
       for (const k in pos) {
         const p = pos[k];
         if (!inF(f, p.acct)) continue;
+        realized += p.realized;
         const a = agg[p.code] ??= { q: 0, costN: 0, seen: true };
-        if (p.q > 0) { val += valueK(p, d); cost += p.costK; a.q += p.q; a.costN += p.costN; }
+        if (p.q > 0) {
+          val += valueK(p, d); cost += p.costK; a.q += p.q; a.costN += p.costN;
+          const [vo, vh, vl] = valueOHL(p, d); o += vo; hi += vh; lo += vl;
+        }
       }
-      views[f].series.push({ time: d, val, cost });
+      for (const a in flow) if (inF(f, a)) { buy += flow[a].buy; sell += flow[a].sell; }
+      views[f].series.push({ time: d, val, cost, o, hi, lo, realized, buy, sell });
       for (const c in agg) (views[f].avg[c] ??= []).push(agg[c].q > 0 ? { time: d, value: agg[c].costN / agg[c].q } : { time: d });
     }
+    for (const k in flow) delete flow[k];
   }
   while (i < trades.length) apply(trades[i++]); // 시세 마지막 날 이후 거래 반영
 
@@ -459,11 +490,12 @@ function toPeriodEnd(points, tf, dates) { // 선 데이터: 묶음별 마지막 
 
 // ───────── 화면 상태 ─────────
 let S, PIN = null;
-const view = { f: '전체', tfT: 'D', tfK: 'D', mode: 'candle', avg: true, marks: true, pie: 'code', showClosed: false, code: null };
+const view = { f: '전체', tfT: 'D', tfK: 'D', mode: 'candle', tmode: 'pnl', flows: true, avg: true, marks: true, pie: 'code', showClosed: false, code: null };
 try { Object.assign(view, JSON.parse(localStorage.getItem('folioView') || '{}'), { code: null, showClosed: false }); } catch (e) {}
 const saveView = () => { try { const { code, showClosed, ...rest } = view; localStorage.setItem('folioView', JSON.stringify(rest)); } catch (e) {} };
 
-let totalChart, sVal, sCost, tickerChart, candle, closeLine, avgSeries;
+let totalChart, sVal, sCost, sPnl, tickerChart, candle, closeLine, avgSeries;
+const FLOW_MIN = 50000; // 봉 하나 기준 순매수·순매도가 이 금액 이상일 때만 핀 표시
 const PALETTE = ['#3b6fe0', '#e0573e', '#f2a60f', '#2fa37a', '#8a5cf0', '#e04f9a', '#22a3c4', '#b07d3a'];
 
 function baseChart(el) {
@@ -490,6 +522,10 @@ function createCharts() {
   totalChart = baseChart($('chartTotal'));
   sCost = totalChart.addLineSeries({ color: css('--sub'), lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
   sVal = totalChart.addLineSeries({ color: css('--total'), lineWidth: 2, priceLineVisible: false });
+  sPnl = totalChart.addCandlestickSeries({
+    upColor: css('--up'), downColor: css('--down'), borderVisible: false,
+    wickUpColor: css('--up'), wickDownColor: css('--down'), priceLineVisible: false,
+  });
   tickerChart = baseChart($('chartTicker'));
   candle = tickerChart.addCandlestickSeries({
     upColor: css('--up'), downColor: css('--down'), borderVisible: false,
@@ -530,12 +566,49 @@ function renderAll() {
 }
 
 function renderTotal() {
+  seg($('tmodeSeg'), [['pnl', '손익 캔들'], ['line', '평가액 선']], view.tmode, m => { view.tmode = m; saveView(); renderTotal(); });
   seg($('tfTotal'), TF, view.tfT, tf => { view.tfT = tf; saveView(); renderTotal(); });
-  const ser = S.views[view.f].series.filter(s => s.val > 0 || s.cost > 0);
+  const ser = S.views[view.f].series.filter(s => s.val > 0 || s.cost > 0 || s.realized);
   const dates = ser.map(s => s.time);
+  const isPnl = view.tmode === 'pnl';
+  sPnl.applyOptions({ visible: isPnl });
+  sVal.applyOptions({ visible: !isPnl });
+  sCost.applyOptions({ visible: !isPnl });
+
+  // 누적 손익 = 평가손익 + 실현손익 → 매수·매도로는 안 변하고 주가로만 움직임
+  const pnl = ser.map(s => {
+    const base = s.realized - s.cost;
+    return { time: s.time, open: s.o + base, high: s.hi + base, low: s.lo + base, close: s.val + base };
+  });
+  sPnl.setData(toCandles(pnl, view.tfT));
   sVal.setData(toPeriodEnd(ser.map(s => ({ time: s.time, value: s.val })), view.tfT, dates));
   sCost.setData(toPeriodEnd(ser.map(s => ({ time: s.time, value: s.cost })), view.tfT, dates));
+
+  // 투입·회수 핀: 봉 단위로 순매수 합산
+  const key = view.tfT === 'D' ? (d => d) : groupKeys(dates, view.tfT);
+  const net = new Map();
+  ser.forEach(s => { const t = key(s.time); net.set(t, (net.get(t) || 0) + s.buy - s.sell); });
+  const man = v => (Math.abs(v) >= 1e8 ? (Math.abs(v) / 1e8).toFixed(1) + '억' : Math.round(Math.abs(v) / 1e4) + '만');
+  // 일봉은 핀이 촘촘해서 10만 원 이상만 점으로, 주·월·년봉은 5만 원 이상을 금액과 함께
+  const daily = view.tfT === 'D', minFlow = daily ? FLOW_MIN * 2 : FLOW_MIN;
+  const pins = !view.flows ? [] : [...net].filter(([, v]) => Math.abs(v) >= minFlow).map(([t, v]) => ({
+    time: t, position: v > 0 ? 'belowBar' : 'aboveBar', shape: 'circle', color: css('--flow'), size: daily ? 0.5 : 0.6,
+    text: daily ? '' : (v > 0 ? '+' : '−') + man(v),
+  }));
+  sPnl.setMarkers(isPnl ? pins : []);
+  sVal.setMarkers(isPnl ? [] : pins);
   totalChart.timeScale().fitContent();
+
+  const lastS = ser[ser.length - 1];
+  const nowPnl = lastS ? lastS.val - lastS.cost + lastS.realized : 0;
+  $('totalInfo').innerHTML = isPnl
+    ? `누적 손익 <span class="${cls(nowPnl)}">${signed(nowPnl)}원</span> (평가손익 + 실현손익, 돈을 넣고 빼도 안 변하고 주가로만 움직임)`
+    : '평가액과 매입금액의 간격이 평가손익';
+  $('totalLegend').innerHTML = (isPnl
+    ? '<span>캔들: 누적 손익</span>'
+    : '<span><i style="background:var(--total)"></i>평가액</span><span><i style="background:var(--sub)"></i>매입금액</span>')
+    + `<button type="button" class="tg" id="tgFlows" aria-pressed="${view.flows}"><i style="background:var(--flow);height:8px;width:8px;border-radius:50%"></i>투입·회수</button>`;
+  $('tgFlows').onclick = () => { view.flows = !view.flows; saveView(); renderTotal(); };
 }
 
 function renderTable() {
@@ -578,7 +651,7 @@ function renderDonut() {
     const len = total ? s.val / total * C : 0;
     const color = s.etc ? css('--sub') : PALETTE[i % PALETTE.length];
     s.color = color;
-    const el = `<circle r="${R}" cx="100" cy="100" fill="none" stroke="${color}" stroke-width="26"
+    const el = `<circle class="seg" data-i="${i}" r="${R}" cx="100" cy="100" fill="none" stroke="${color}" stroke-width="26"
       stroke-dasharray="${Math.max(len - 1.5, 0)} ${C}" stroke-dashoffset="${-acc}" transform="rotate(-90 100 100)"></circle>`;
     acc += len; return el;
   }).join('');
@@ -591,7 +664,25 @@ function renderDonut() {
     <div class="dlist">${slices.map(s => `
       <div class="it"><span class="sw" style="background:${s.color}"></span><span>${esc(s.name)}</span><span class="pc">${(s.val / total * 100).toFixed(1)}%</span></div>
       ${s.etc ? `<div class="etc">${s.etc.map(x => `${esc(x.name)} ${(x.val / total * 100).toFixed(1)}%`).join(', ')}</div>` : ''}`).join('')}
-    </div>`;
+    </div>
+    <div class="tip" id="donutTip" hidden></div>`;
+
+  // 조각 위에 올리면(폰은 탭하면) 종목·비중·금액 팝업
+  const svg = $('donut').querySelector('svg'), tip = $('donutTip'), box = $('donut');
+  const show = ev => {
+    const c = ev.target.closest('circle.seg');
+    svg.querySelectorAll('circle.seg').forEach(x => x.classList.toggle('on', x === c));
+    if (!c) { tip.hidden = true; return; }
+    const s = slices[+c.dataset.i], r = box.getBoundingClientRect();
+    tip.innerHTML = `<b>${esc(s.name)}</b><br>${(s.val / total * 100).toFixed(1)}% · ${won(s.val)}원`
+      + (s.etc ? `<div class="etc">${s.etc.map(x => `${esc(x.name)} ${(x.val / total * 100).toFixed(1)}%`).join(', ')}</div>` : '');
+    tip.style.left = (ev.clientX - r.left) + 'px';
+    tip.style.top = (ev.clientY - r.top) + 'px';
+    tip.hidden = false;
+  };
+  svg.addEventListener('pointermove', show);
+  svg.addEventListener('pointerdown', show);
+  svg.addEventListener('pointerleave', () => { tip.hidden = true; svg.querySelectorAll('circle.seg').forEach(x => x.classList.remove('on')); });
 }
 
 // ───────── 종목 칩 / 차트 ─────────
