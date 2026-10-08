@@ -658,7 +658,6 @@ function createCharts() {
   axTotal = attachAxis(totalChart, $('chartTotal'));
   tickerChart = baseChart($('chartTicker'));
   axTicker = attachAxis(tickerChart, $('chartTicker'));
-  tickerChart.timeScale().subscribeVisibleLogicalRangeChange(() => { if (!peakRaf) peakRaf = requestAnimationFrame(updatePeak); });
   candle = tickerChart.addCandlestickSeries({
     upColor: css('--up'), downColor: css('--down'), borderVisible: false,
     wickUpColor: css('--up'), wickDownColor: css('--down'), priceLineVisible: false,
@@ -796,28 +795,30 @@ async function loadHistory(code, ccy) {
     PXFULL[code] = Object.fromEntries(res.rows.map(r => [r[0], [+r[1], +r[2], +r[3], +r[4]]]));
     if (view.code === code && view.kstart === 'full') showTicker(code);
   } else {
-    const el = $('histLoading'); if (el) el.textContent = ' · 전체 시세를 받지 못했습니다';
+    const el = $('histLoading'); if (el) el.textContent = ' · 상장 이후 시세를 받지 못해 저장된 최근 2년치만 표시 중 (' + (res.error || 'Apps Script 새 버전 배포 확인') + ')';
   }
 }
 function updatePeak() {
   peakRaf = 0;
   if (peakLine && peakSeries) { peakSeries.removePriceLine(peakLine); peakLine = null; }
-  const bars = S._kbars || [];
-  if (!bars.length) return;
-  const vr = tickerChart.timeScale().getVisibleRange();
-  const inView = vr ? bars.filter(b => b.time >= vr.from && b.time <= vr.to) : bars;
-  if (!inView.length) return;
-  const useHigh = S._kcandle; // 캔들은 고가, 선은 종가 기준
-  let top = inView[0];
-  inView.forEach(b => { if ((useHigh ? b.high : b.close) > (useHigh ? top.high : top.close)) top = b; });
-  const peak = useHigh ? top.high : top.close;
-  const now = bars[bars.length - 1].close; // 현재가 = 가장 최근 종가
-  const dd = now / peak - 1;
-  if (dd >= -0.0005 || top.time === bars[bars.length - 1].time) return; // 지금이 최고가면 표시 안 함
+  const el = $('peakInfo');
+  const daily = (S._kdaily || []).filter(b => !S._kpeakFrom || b.time >= S._kpeakFrom);
+  if (!daily.length) { if (el) el.textContent = ''; return; }
+  let top = daily[0];
+  daily.forEach(b => { if (b.high > top.high) top = b; });
+  const now = daily[daily.length - 1].close; // 현재가 = 가장 최근 종가
+  const dd = now / top.high - 1;
+  const fmt = p => S._kccy === 'USD' ? usd(p) : won(p) + '원';
+  const base = S._kpeakFrom ? '매수 이후' : '상장 이후';
+  if (dd >= -0.0005 || top.time === daily[daily.length - 1].time) {
+    if (el) el.innerHTML = `· ${base} 최고가 부근`;
+    return;
+  }
+  if (el) el.innerHTML = `· ${base} 최고가 ${fmt(top.high)} 대비 <span class="down">${(dd * 100).toFixed(1)}%</span>`;
   peakSeries = S._kcandle ? candle : closeLine;
   peakLine = peakSeries.createPriceLine({
-    price: peak, color: css('--sub'), lineWidth: 1, lineStyle: 2, axisLabelVisible: true,
-    title: `최고가 대비 ${(dd * 100).toFixed(1)}%`,
+    price: top.high, color: css('--sub'), lineWidth: 1, lineStyle: 2, axisLabelVisible: true,
+    title: `${base} 최고가 대비 ${(dd * 100).toFixed(1)}%`,
   });
 }
 
@@ -981,14 +982,15 @@ function showTicker(code) {
   tmLine.set(isCandle ? [] : arrows);
   S._lastShown = shown[shown.length - 1];
   S._kbars = bars; S._kccy = ccy; S._kcandle = isCandle;
+  S._kdaily = daily; S._kpeakFrom = full ? null : firstTrade;
   axTicker.set(bars.map(b => b.time), view.tfK);
   applyRange(tickerChart, S._lastShown, view.rgK);
-  updatePeak();
 
   const head = `<span class="nm">${esc(label(code))}</span><button type="button" class="icon-btn" id="aliasBtn" title="별칭 바꾸기">✎</button>`;
   $('tinfo').innerHTML = head + (h
     ? `${qty(h.q)}주, 평단 ${money(h.avgN, ccy)}, 평가손익 <span class="${cls(h.pl)}">${signed(h.pl)}원</span>`
-    : c ? `보유하지 않음, 실현손익 <span class="${cls(c.realized)}">${signed(c.realized)}원</span>` : '');
+    : c ? `보유하지 않음, 실현손익 <span class="${cls(c.realized)}">${signed(c.realized)}원</span>` : '') + '<span id="peakInfo"></span>';
+  updatePeak();
   $('aliasBtn').onclick = async () => {
     const cur = S.tick[code]?.alias || label(code);
     const next = prompt(`${S.tick[code]?.name || code}\n칩에 보일 짧은 이름`, cur);
