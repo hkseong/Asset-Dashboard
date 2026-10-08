@@ -160,6 +160,23 @@
     .mrow .up, .mtotal .up { color: var(--up); } .mrow .down, .mtotal .down { color: var(--down); } /* 손익 색이 회색에 묻히지 않게 */
     .mtotal { display: flex; justify-content: space-between; padding: 12px 0 2px; font-weight: 650; border-top: 2px solid var(--line); }
   }
+  .pagebar { margin: -4px 0 12px; }
+  .mnote { font-size: 12px; color: var(--sub); }
+  .mcards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .mcards div { background: var(--soft); border-radius: 12px; padding: 12px; font-size: 13px; color: var(--sub); }
+  .mcards b { display: block; font-size: 19px; color: var(--ink); font-weight: 700; margin-top: 4px; }
+  .mcards small { display: block; margin-top: 2px; }
+  .mavg { display: flex; gap: 6px 16px; flex-wrap: wrap; font-size: 13px; color: var(--sub); margin-top: 12px; }
+  .mavg b { color: var(--ink); font-weight: 650; }
+  .mchart { position: relative; }
+  .mchart svg { width: 100%; height: 240px; display: block; overflow: visible; }
+  .mchart .tip { transform: translate(-50%, calc(-100% - 8px)); }
+  .mtable td:first-child { font-weight: 600; }
+  @media (max-width: 560px) {
+    .mcards { grid-template-columns: repeat(2, 1fr); }
+    .mcards b { font-size: 17px; }
+    .mtable { display: none; }
+  }
   td .split { font-size: 11px; color: var(--sub); margin-top: 1px; font-weight: 400; line-height: 1.35; }
   .foot span + span::before { content: ' · '; }
   @media (max-width: 560px) { .foot span { display: block; line-height: 1.7; } .foot span + span::before { content: none; } }
@@ -261,7 +278,9 @@
       <div class="brand"><img class="brandicon" src="apple-touch-icon.png?v=3" alt="" width="32" height="32"><span class="appname">Portfolio</span></div>
       <div class="topright"><div class="seg" id="acctSeg" role="group" aria-label="계좌"></div><button type="button" class="lockbtn" id="fab" title="거래 입력" aria-label="거래 입력" hidden><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button><button type="button" class="lockbtn" id="lockBtn" title="잠금 (PIN 화면으로)" aria-label="잠금"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></button></div>
     </div>
+    <div class="pagebar"><div class="seg" id="pageSeg" role="group" aria-label="페이지"></div></div>
 
+    <div id="pageDash">
     <section class="hero">
       <div class="label" id="asof"></div>
       <div class="total" id="total"></div>
@@ -344,6 +363,28 @@
       <div class="cash" id="cash"></div>
       <div class="note">예수금은 투자 성과 계산에서 빠져 있습니다. 원화·달러 모두 증권사 문자에 찍힌 잔액으로 자동 보정됩니다.</div>
     </section>
+    </div>
+
+    <div id="pageMonth" hidden>
+      <section>
+        <div class="head"><h2 id="mTitle">이번 달</h2><span class="mnote" id="mNow"></span></div>
+        <div class="mcards" id="mCards"></div>
+        <div class="mavg" id="mAvg"></div>
+      </section>
+      <section>
+        <div class="head"><h2>월별 흐름</h2><div class="legend" style="margin:0"><span><i style="background:var(--sub);height:8px;width:10px;border-radius:2px"></i>투자에 넣은 돈</span><span><i style="background:var(--up);height:8px;width:10px;border-radius:2px"></i><i style="background:var(--down);height:8px;width:10px;border-radius:2px;margin-left:-3px"></i>계좌 손익</span></div></div>
+        <div class="mchart" id="mChart"></div>
+      </section>
+      <section>
+        <div class="head"><h2>월별 표</h2></div>
+        <div class="tablewrap"><table class="mtable">
+          <thead><tr><th>월</th><th>넣은 돈</th><th>주식 순매수</th><th>계좌 손익</th><th>수익률</th><th>배당·이자</th><th>월말 투자 자산</th><th>CMA</th></tr></thead>
+          <tbody id="mRows"></tbody><tfoot id="mFoot"></tfoot>
+        </table></div>
+        <div class="mlist" id="mRowsM"></div>
+        <div class="note">넣은 돈 = 그달 투자 계좌(ISA·종합)로 들어온 돈 − 나간 돈. 월급에서 오든 CMA에서 오든 다 포함되고, 투자 계좌끼리 옮긴 돈은 상쇄됩니다. 투자 자산 증가 = 넣은 돈 + 계좌 손익.</div>
+      </section>
+    </div>
   </div>
 </main>
 
@@ -408,7 +449,7 @@
 <script>
 // 앱을 열면 항상 맨 위부터 (이전 스크롤 위치 복원 끔)
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-const BUILD = '2026.10.09 02:01'; // 화면 하단 버전 표시 + 새 버전 감지용
+const BUILD = '2026.10.09 02:28'; // 화면 하단 버전 표시 + 새 버전 감지용
 const APP_NAME = 'Portfolio'; // 사이트 이름 (여기만 바꾸면 됨, <title>도 같이)
 document.querySelectorAll('.appname').forEach(e => e.textContent = APP_NAME);
 
@@ -521,7 +562,8 @@ function compute(raw) {
 
   const accts = [...new Set(trades.filter(x => x.t === '매수').map(x => x.acct))];
   const filters = ['전체', ...accts];
-  const inF = (f, acct) => f === '전체' || f === acct;
+  // 전체 = 투자 계좌(ISA·종합)만. CMA는 투자 목적이 아니라 예수금 카드에만 따로 표시
+  const inF = (f, acct) => f === '전체' ? accts.includes(acct) : f === acct;
   const views = Object.fromEntries(filters.map(f => [f, { series: [], avg: {} }]));
 
   // 그날 시가/고가/저가 기준 평가액 (시세 없는 날은 종가 평가액 그대로)
@@ -561,7 +603,8 @@ function compute(raw) {
       for (const a in cash) if (inF(f, a)) cashK += cash[a].KRW + cash[a].USD * (lastFx || 1);
       for (const a in prin) if (inF(f, a)) pr += prin[a];
       for (const a in flow) if (inF(f, a)) { buy += flow[a].buy; sell += flow[a].sell; }
-      views[f].series.push({ time: d, val, cost, o, hi, lo, realized, buy, sell, inc, cashK, pr, fx: lastFx });
+      const cma = cash.CMA ? cash.CMA.KRW + cash.CMA.USD * (lastFx || 1) : 0;
+      views[f].series.push({ time: d, val, cost, o, hi, lo, realized, buy, sell, inc, cashK, pr, cma, fx: lastFx });
       for (const c in agg) (views[f].avg[c] ??= []).push(agg[c].q > 0 ? { time: d, value: agg[c].costN / agg[c].q } : { time: d });
     }
     for (const k in flow) delete flow[k];
@@ -832,6 +875,7 @@ function renderAll() {
   if (view.code) showTicker(view.code);
   renderCash();
   renderTodayInfo();
+  renderPage();
   // 마지막으로 받은 증권사 문자 (자동화가 살아 있는지 확인용)
   const ls = RAW && RAW.lastSms;
   const what = ls ? ((/\(([^)]+)\)/.exec(ls[3]) || [])[1] || `${ls[1]} ${ls[3]}`).replace(' (재처리)', '') : '';
@@ -1027,6 +1071,97 @@ function fxSplit(h) {
   const px = h.price / h.avgN - 1, fx = (1 + h.r) / (1 + px) - 1;
   const p1 = n => (n > 0 ? '+' : '') + (n * 100).toFixed(1) + '%';
   return `<div class="split">주가 <span class="${cls(px)}">${p1(px)}</span></div><div class="split">환율 <span class="${cls(fx)}">${p1(fx)}</span></div>`;
+}
+
+// ───────── 월간 ─────────
+// 일별 기록을 월 단위로: 넣은 돈·배당은 누적값의 차이, 손익은 계좌 손익(총자산−넣은 돈)의 월말 차이
+function monthly(v) {
+  const byM = new Map();
+  v.series.forEach(s => {
+    const m = s.time.slice(0, 7);
+    const e = byM.get(m) || { m, buy: 0, sell: 0 };
+    e.buy += s.buy || 0; e.sell += s.sell || 0; e.last = s;
+    byM.set(m, e);
+  });
+  const out = []; let prev = null;
+  for (const e of byM.values()) {
+    const s = e.last, assets = s.val + (s.cashK || 0), acctPl = assets - (s.pr || 0);
+    const p0 = prev ? prev.s : { val: 0, cashK: 0, pr: 0, inc: 0 }, a0 = prev ? prev.assets : 0, pl0 = prev ? prev.acctPl : 0;
+    const flow = (s.pr || 0) - (p0.pr || 0), pl = acctPl - pl0;
+    out.push({ m: e.m, flow, net: e.buy - e.sell, pl, r: (a0 + flow / 2) > 0 ? pl / (a0 + flow / 2) : 0,
+      inc: (s.inc || 0) - (p0.inc || 0), assets, grow: assets - a0,
+      // CMA: 과거 RP 이자가 기록에 없어서 잠깐 음수로 계산되는 구간은 0으로 (실제 잔액은 문자 잔액으로 맞춰짐)
+      cma: Math.max(0, s.cma || 0), cmaD: Math.max(0, s.cma || 0) - Math.max(0, prev ? prev.s.cma || 0 : 0) });
+    prev = { s, assets, acctPl };
+  }
+  return out;
+}
+const mLabel = m => `${+m.slice(5)}월`;
+function renderMonthly() {
+  const v = S.views[view.f], M = monthly(v);
+  if (!M.length) return;
+  const cur = M[M.length - 1], thisMonth = new Date().toISOString().slice(0, 7) <= cur.m;
+  $('mTitle').textContent = `${cur.m.slice(0, 4)}년 ${mLabel(cur.m)}${thisMonth ? ' (진행 중)' : ''}`;
+  $('mNow').textContent = view.f === '전체' ? 'ISA·종합 합산' : view.f === '종합' ? '종합(해외)' : view.f;
+  const c = (label, val, sub, color) => `<div>${label}<b class="${color || ''}">${val}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  $('mCards').innerHTML =
+    c('투자에 넣은 돈', `${signed(cur.flow)}원`, '', '') +
+    c('주식 순매수', `${signed(cur.net)}원`, '산 돈 − 판 돈') +
+    c('계좌 손익', `${signed(cur.pl)}원`, pct(cur.r), cls(cur.pl)) +
+    c('월말 투자 자산', `${won(cur.assets)}원`, `지난달 대비 ${signed(cur.grow)}원`);
+  // 최근 3개월(이번 달 제외) 평균과 전체 평균
+  const done = thisMonth ? M.slice(0, -1) : M;
+  const avg = arr => arr.length ? arr.reduce((s, x) => s + x.flow, 0) / arr.length : 0;
+  const r3 = done.slice(-3);
+  $('mAvg').innerHTML = done.length
+    ? `<span>최근 ${r3.length}개월 평균 넣은 돈 <b>${won(avg(r3))}원</b></span><span>전체 ${done.length}개월 평균 <b>${won(avg(done))}원</b></span><span>누적 넣은 돈 <b>${won(M.reduce((s, x) => s + x.flow, 0))}원</b></span>`
+    : '';
+
+  // 월별 막대: 넣은 돈(회색) + 계좌 손익(빨강/파랑), 0 기준선 위아래
+  const W = Math.max(300, $('mChart').clientWidth || 720), H = 240, padL = 4, padR = 4, padT = 14, padB = 26; // 실제 폭으로 그려야 폰에서 글자가 안 찌그러짐
+  const mx = Math.max(1, ...M.map(x => Math.max(Math.abs(x.flow), Math.abs(x.pl))));
+  const hasNeg = M.some(x => x.flow < 0 || x.pl < 0);
+  const zeroY = hasNeg ? padT + (H - padT - padB) / 2 : H - padB;
+  const scale = (hasNeg ? (H - padT - padB) / 2 : H - padT - padB) / mx;
+  const gw = (W - padL - padR) / M.length, bw = Math.min(16, gw * 0.32);
+  const bar = (x, val, color) => { const hgt = Math.abs(val) * scale, y = val >= 0 ? zeroY - hgt : zeroY; return `<rect x="${x}" y="${y}" width="${bw}" height="${Math.max(hgt, 0.5)}" rx="2" fill="${color}"></rect>`; };
+  let svg = `<line x1="0" x2="${W}" y1="${zeroY}" y2="${zeroY}" stroke="${css('--line')}"></line>`;
+  M.forEach((x, i) => {
+    const cx = padL + gw * i + gw / 2;
+    svg += `<g class="mg" data-i="${i}"><rect x="${cx - gw / 2}" y="0" width="${gw}" height="${H}" fill="transparent"></rect>`
+      + bar(cx - bw - 1, x.flow, css('--sub')) + bar(cx + 1, x.pl, x.pl >= 0 ? css('--up') : css('--down'))
+      + `<text x="${cx}" y="${H - 8}" text-anchor="middle" font-size="11" fill="${css('--sub')}">${x.m.endsWith('-01') || i === 0 ? x.m.slice(2, 4) + '.' : ''}${+x.m.slice(5)}</text></g>`;
+  });
+  $('mChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="월별 넣은 돈과 계좌 손익">${svg}</svg><div class="tip" id="mTip" hidden></div>`;
+  const tip = $('mTip'), box = $('mChart');
+  const show = ev => {
+    const g = ev.target.closest('.mg'); if (!g) { tip.hidden = true; return; }
+    const x = M[+g.dataset.i], r = box.getBoundingClientRect();
+    tip.innerHTML = `<b>${x.m.slice(0, 4)}년 ${mLabel(x.m)}</b><br>넣은 돈 ${signed(x.flow)}원<br>계좌 손익 ${signed(x.pl)}원 (${pct(x.r)})`;
+    tip.style.left = (ev.clientX - r.left) + 'px'; tip.style.top = (ev.clientY - r.top) + 'px'; tip.hidden = false;
+  };
+  box.querySelector('svg').addEventListener('pointermove', show);
+  box.querySelector('svg').addEventListener('pointerdown', show);
+  box.querySelector('svg').addEventListener('pointerleave', () => tip.hidden = true);
+
+  // 월별 표 (최근 달이 위로) + 폰 카드
+  const R = M.slice().reverse();
+  $('mRows').innerHTML = R.map(x => `<tr><td>${x.m.slice(2, 4)}.${x.m.slice(5)}</td><td>${signed(x.flow)}</td><td>${signed(x.net)}</td>
+    <td class="${cls(x.pl)}">${signed(x.pl)}</td><td class="${cls(x.r)}">${pct(x.r)}</td><td>${x.inc ? signed(x.inc) : '-'}</td>
+    <td>${won(x.assets)}</td><td>${won(x.cma)}<small>${Math.abs(x.cmaD) >= 1 ? ' ' + signed(x.cmaD) : ''}</small></td></tr>`).join('');
+  const tf = M.reduce((s, x) => s + x.flow, 0), tn = M.reduce((s, x) => s + x.net, 0), tp = M.reduce((s, x) => s + x.pl, 0), ti = M.reduce((s, x) => s + x.inc, 0);
+  $('mFoot').innerHTML = `<tr><td>합계</td><td>${signed(tf)}</td><td>${signed(tn)}</td><td class="${cls(tp)}">${signed(tp)}</td><td></td><td>${signed(ti)}</td><td>${won(cur.assets)}</td><td></td></tr>`;
+  $('mRowsM').innerHTML = R.map(x => `<div class="mrow" style="cursor:default">
+      <div class="l"><div class="nm">${x.m.slice(0, 4)}.${x.m.slice(5)}</div><div class="sub">넣은 돈 ${signed(x.flow)}원</div><div class="sub">순매수 ${signed(x.net)}원 · CMA ${won(x.cma)}원</div></div>
+      <div class="r"><div class="v ${cls(x.pl)}">${signed(x.pl)}원</div><div class="sub ${cls(x.r)}">${pct(x.r)}</div><div class="sub">자산 ${won(x.assets)}원</div></div>
+    </div>`).join('');
+}
+
+function renderPage() {
+  seg($('pageSeg'), [['dash', '대시보드'], ['month', '월간']], view.page || 'dash', k => { view.page = k; saveView(); renderPage(); });
+  const month = view.page === 'month';
+  $('pageDash').hidden = month; $('pageMonth').hidden = !month;
+  if (month) renderMonthly();
 }
 
 function renderTable() {
