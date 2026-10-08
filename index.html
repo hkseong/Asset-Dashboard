@@ -243,6 +243,7 @@
       <div class="chart" id="chartTicker"></div>
       <div class="rangebar"><div class="seg" id="rgTicker" role="group" aria-label="종목 차트 기간"></div><span class="hint">드래그로 이동, 휠·핀치로 확대</span></div>
       <div class="legend">
+        <div class="seg" id="kstartSeg" role="group" aria-label="차트 시작 시점"></div>
         <button type="button" class="tg" id="tgAvg" aria-pressed="true"><i style="background:var(--avg)"></i>내 평단</button>
         <button type="button" class="tg" id="tgMarks" aria-pressed="true">▲ 매수 ▼ 매도</button>
       </div>
@@ -542,7 +543,7 @@ function toPeriodEnd(points, tf, dates) { // 선 데이터: 묶음별 마지막 
 
 // ───────── 화면 상태 ─────────
 let S, PIN = null;
-const view = { f: '전체', tfT: 'D', tfK: 'D', mode: 'candle', tmode: 'pnl', rgT: 'ALL', rgK: 'ALL', bench: {}, holdTab: 'hold', avg: true, marks: true, pie: 'code', showClosed: false, code: null };
+const view = { f: '전체', tfT: 'D', tfK: 'D', mode: 'candle', tmode: 'pnl', rgT: 'ALL', rgK: 'ALL', bench: {}, holdTab: 'hold', kstart: 'mine', avg: true, marks: true, pie: 'code', showClosed: false, code: null };
 try { Object.assign(view, JSON.parse(localStorage.getItem('folioView') || '{}'), { code: null, showClosed: false }); } catch (e) {}
 const saveView = () => { try { const { code, showClosed, ...rest } = view; localStorage.setItem('folioView', JSON.stringify(rest)); } catch (e) {} };
 
@@ -566,7 +567,7 @@ function baseChart(el) {
     grid: { vertLines: { visible: false }, horzLines: { color: css('--line') } },
     rightPriceScale: { borderVisible: false },
     localization: { priceFormatter: p => won(p), timeFormatter: t => fullDate(t) },
-    timeScale: { borderVisible: false, visible: false },
+    timeScale: { borderVisible: false, visible: false, minBarSpacing: 0.05 }, // 20년치 일봉도 한 화면에 들어가게
     handleScroll: { vertTouchDrag: false },
   });
 }
@@ -664,6 +665,8 @@ function createCharts() {
   });
   closeLine = tickerChart.addLineSeries({ color: css('--total'), lineWidth: 2, priceLineVisible: false });
   avgSeries = tickerChart.addLineSeries({ color: css('--avg'), lineWidth: 2, priceLineVisible: false });
+  tmCandle = new TradeArrows(); candle.attachPrimitive(tmCandle);
+  tmLine = new TradeArrows(); closeLine.attachPrimitive(tmLine);
 
   $('closedToggle').onclick = () => { view.showClosed = !view.showClosed; renderChips(); };
   $('tgAvg').onclick = () => { view.avg = !view.avg; saveView(); showTicker(view.code); };
@@ -748,6 +751,54 @@ function renderTotal() {
 
 // ───────── 종목 차트: 보이는 구간 최고가 + 현재가의 최고가 대비 하락률 ─────────
 let peakLine = null, peakSeries = null, peakRaf = 0;
+
+// ───────── 매수·매도 화살표: 색은 그대로, 진한 테두리를 둘러서 봉과 구별 ─────────
+class TradeArrows {
+  constructor() { this.items = []; const self = this; this._view = { renderer: () => ({ draw: t => self.draw(t) }) }; }
+  attached(p) { this.chart = p.chart; this.series = p.series; this.req = p.requestUpdate; }
+  detached() {}
+  set(items) { this.items = items; if (this.req) this.req(); }
+  updateAllViews() {}
+  paneViews() { return [this._view]; }
+  draw(target) {
+    if (!this.items.length || !this.chart) return;
+    const ts = this.chart.timeScale(), up = css('--up'), down = css('--down'), edge = css('--ink');
+    target.useBitmapCoordinateSpace(({ context: c, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
+      c.lineJoin = 'round'; c.lineWidth = Math.max(1, 1.3 * hr);
+      const W = 5 * hr, S = 1.6 * hr, HEAD = 5 * vr, LEN = 11 * vr, GAP = 5 * vr;
+      for (const m of this.items) {
+        const x = ts.timeToCoordinate(m.time), y = this.series.priceToCoordinate(m.price);
+        if (x == null || y == null) continue;
+        const X = Math.round(x * hr), d = m.side === 'b' ? 1 : -1; // 매수는 봉 아래에서 위로, 매도는 봉 위에서 아래로
+        const tip = y * vr + d * GAP;
+        c.beginPath();
+        c.moveTo(X, tip);
+        c.lineTo(X + W, tip + d * HEAD); c.lineTo(X + S, tip + d * HEAD); c.lineTo(X + S, tip + d * LEN);
+        c.lineTo(X - S, tip + d * LEN); c.lineTo(X - S, tip + d * HEAD); c.lineTo(X - W, tip + d * HEAD);
+        c.closePath();
+        c.fillStyle = m.side === 'b' ? up : down; c.fill();
+        c.strokeStyle = edge; c.stroke();
+      }
+    });
+  }
+}
+let tmCandle, tmLine;
+
+// ───────── 상장 이후 전체 일봉: 필요할 때만 받아서 기억 ─────────
+const PXFULL = {}, PXLOADING = {};
+async function loadHistory(code, ccy) {
+  if (PXLOADING[code]) return;
+  PXLOADING[code] = true;
+  $('tinfo').insertAdjacentHTML('beforeend', ' <span id="histLoading" style="color:var(--sub)">· 상장 이후 시세 받는 중…</span>');
+  const res = await post({ pin: PIN, action: 'history', code, ccy });
+  PXLOADING[code] = false;
+  if (res.ok && res.rows && res.rows.length) {
+    PXFULL[code] = Object.fromEntries(res.rows.map(r => [r[0], [+r[1], +r[2], +r[3], +r[4]]]));
+    if (view.code === code && view.kstart === 'full') showTicker(code);
+  } else {
+    const el = $('histLoading'); if (el) el.textContent = ' · 전체 시세를 받지 못했습니다';
+  }
+}
 function updatePeak() {
   peakRaf = 0;
   if (peakLine && peakSeries) { peakSeries.removePriceLine(peakLine); peakLine = null; }
@@ -892,12 +943,15 @@ function showTicker(code) {
   const ccy = info?.ccy || S.tick[code]?.ccy || 'KRW';
   tickerChart.applyOptions({ localization: { priceFormatter: p => ccy === 'USD' ? usd(p) : won(p) } });
 
+  seg($('kstartSeg'), [['mine', '내 매수부터'], ['full', '상장 이후']], view.kstart, k => { view.kstart = k; saveView(); showTicker(view.code); });
+  const full = view.kstart === 'full';
+  const src = full && PXFULL[code] ? { ...PXFULL[code], ...(S.px[code] || {}) } : (S.px[code] || {});
   const mk = info?.marks || {};
   const firstTrade = Object.keys(mk).sort()[0] || '';
-  const days = Object.keys(S.px[code] || {}).sort();
-  const from = days[Math.max(0, days.findIndex(d => d >= firstTrade) - 15)] || days[0];
+  const days = Object.keys(src).sort();
+  const from = full ? days[0] : (days[Math.max(0, days.findIndex(d => d >= firstTrade) - 15)] || days[0]);
   const shown = days.filter(d => d >= from);
-  const daily = shown.map(d => { const [o, hi, l, cl] = S.px[code][d]; return { time: d, open: o, high: hi, low: l, close: cl }; });
+  const daily = shown.map(d => { const [o, hi, l, cl] = src[d]; return { time: d, open: o, high: hi, low: l, close: cl }; });
   const bars = toCandles(daily, view.tfK);
   const isCandle = view.mode === 'candle';
   candle.applyOptions({ visible: isCandle });
@@ -915,12 +969,16 @@ function showTicker(code) {
     if (!near) return;
     const t = key(near); const a = (agg[t] ??= { b: 0, s: 0 }); a.b += m.b; a.s += m.s;
   });
-  const markers = !view.marks ? [] : Object.entries(agg).sort(([a], [b]) => a < b ? -1 : 1).flatMap(([t, m]) => [
-    ...(m.b ? [{ time: t, position: 'belowBar', shape: 'arrowUp', color: css('--up'), text: '' }] : []),
-    ...(m.s ? [{ time: t, position: 'aboveBar', shape: 'arrowDown', color: css('--down'), text: '' }] : []),
-  ]);
-  candle.setMarkers(isCandle ? markers : []);
-  closeLine.setMarkers(isCandle ? [] : markers);
+  const barAt = new Map(bars.map(b => [b.time, b]));
+  const arrows = !view.marks ? [] : Object.entries(agg).flatMap(([t, m]) => {
+    const b = barAt.get(t); if (!b) return [];
+    return [
+      ...(m.b ? [{ time: t, side: 'b', price: isCandle ? b.low : b.close }] : []),
+      ...(m.s ? [{ time: t, side: 's', price: isCandle ? b.high : b.close }] : []),
+    ];
+  });
+  tmCandle.set(isCandle ? arrows : []);
+  tmLine.set(isCandle ? [] : arrows);
   S._lastShown = shown[shown.length - 1];
   S._kbars = bars; S._kccy = ccy; S._kcandle = isCandle;
   axTicker.set(bars.map(b => b.time), view.tfK);
@@ -938,6 +996,7 @@ function showTicker(code) {
     const res = await api({ action: 'alias', code, alias: next.trim() });
     if (!res.ok) alert(res.error);
   };
+  if (full && !PXFULL[code] && !code.startsWith('_')) loadHistory(code, ccy); // 받아오면 다시 그림
 }
 
 function renderCash() {
