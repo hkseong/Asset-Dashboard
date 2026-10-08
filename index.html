@@ -476,7 +476,10 @@ function baseChart(el) {
 }
 function seg(el, items, current, onPick) {
   el.innerHTML = items.map(([k, lb]) => `<button type="button" data-k="${k}" aria-pressed="${k === current}">${lb}</button>`).join('');
-  el.querySelectorAll('button').forEach(b => b.onclick = () => onPick(b.dataset.k));
+  el.querySelectorAll('button').forEach(b => b.onclick = () => {
+    el.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); // 선택 표시 즉시 갱신
+    onPick(b.dataset.k);
+  });
 }
 
 let chartsReady = false;
