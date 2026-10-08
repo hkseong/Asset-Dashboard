@@ -61,8 +61,10 @@
 
   .hero .label { color: var(--sub); font-size: 13px; }
   .hero .total { font-size: clamp(32px, 8vw, 44px); font-weight: 750; letter-spacing: -0.02em; margin: 4px 0 2px; }
-  .hero .pl { font-size: 17px; font-weight: 600; }
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .hero .pl { font-size: 16px; font-weight: 500; }
+  .hero .pl b { font-weight: 700; }
+  .hero .pl .plr { font-size: 14px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); row-gap: 12px; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
   .stats div { font-size: 13px; color: var(--sub); }
   .stats b { display: block; color: var(--ink); font-size: 15px; font-weight: 600; margin-top: 2px; }
 
@@ -268,9 +270,11 @@
       <div class="lastsms" id="lastSms"></div>
       <div class="stats">
         <div>매입금액<b id="cost"></b></div>
+        <div>평가손익<b id="upl"></b></div>
         <div>실현손익 누적<b id="realized"></b></div>
         <div>배당·이자 누적<b id="income"></b></div>
-        <div>보유 종목<b id="count"></b></div>
+        <div>비용·환전 등<b id="leak"></b></div>
+        <div>넣은 돈<b id="prinV"></b></div>
       </div>
     </section>
 
@@ -404,7 +408,7 @@
 <script>
 // 앱을 열면 항상 맨 위부터 (이전 스크롤 위치 복원 끔)
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-const BUILD = '2026.10.09 01:36'; // 화면 하단 버전 표시 + 새 버전 감지용
+const BUILD = '2026.10.09 02:01'; // 화면 하단 버전 표시 + 새 버전 감지용
 const APP_NAME = 'Portfolio'; // 사이트 이름 (여기만 바꾸면 됨, <title>도 같이)
 document.querySelectorAll('.appname').forEach(e => e.textContent = APP_NAME);
 
@@ -454,7 +458,7 @@ function compute(raw) {
   const start = trades[0].d;
   const cal = [...new Set(raw.prices.map(r => String(r[0]).slice(0, 10)))].filter(d => d >= start).sort();
 
-  const pos = {}, cash = {}, marks = {}, last = {}, snaps = {}, flow = {}, income = {};
+  const pos = {}, cash = {}, marks = {}, last = {}, snaps = {}, flow = {}, income = {}, prin = {};
   let lastFx = 0;
   const fxOn = d => { const f = px[FX]?.[d]; if (f) lastFx = f[3]; return lastFx; };
   const C = acct => cash[acct] ??= { KRW: 0, USD: 0 };
@@ -501,9 +505,10 @@ function compute(raw) {
       }
     } else if (['입금', '이자', '배당', '분배금'].includes(x.t)) {
       cashAdd(x, x.ccy, x.a);
+      if (x.t === '입금') prin[x.acct] = (prin[x.acct] || 0) + x.a; // 넣은 돈 (계좌 손익 기준)
       // 배당·분배금·이자는 예수금으로 남아도 번 돈이니까 수익으로 따로 누적 (달러면 원화 환산)
       if (x.t !== '입금') income[x.acct] = (income[x.acct] || 0) + x.a * (x.ccy === 'USD' ? (x.fx > 1 ? x.fx : lastFx || 1) : 1);
-    } else if (['출금', '세금'].includes(x.t)) cashAdd(x, x.ccy, -x.a);
+    } else if (['출금', '세금'].includes(x.t)) { cashAdd(x, x.ccy, -x.a); if (x.t === '출금') prin[x.acct] = (prin[x.acct] || 0) - x.a; }
     else if (x.t === '환전') { cashAdd(x, 'KRW', -x.a); cashAdd(x, 'USD', x.a / x.fx); }
     else if (x.t === '재환전') { cashAdd(x, 'KRW', x.a); cashAdd(x, 'USD', -x.a / x.fx); }
     // 문자로 받은 증권사 실제 잔액이 있으면 그 값으로 예수금을 맞춤 (누적 오차 제거)
@@ -550,10 +555,13 @@ function compute(raw) {
           const [vo, vh, vl] = valueOHL(p, d); o += vo; hi += vh; lo += vl;
         }
       }
-      let inc = 0;
+      let inc = 0, cashK = 0, pr = 0;
       for (const a in income) if (inF(f, a)) inc += income[a];
+      // 계좌 손익용: 그날 예수금(달러는 그날 환율로) + 그날까지 넣은 돈
+      for (const a in cash) if (inF(f, a)) cashK += cash[a].KRW + cash[a].USD * (lastFx || 1);
+      for (const a in prin) if (inF(f, a)) pr += prin[a];
       for (const a in flow) if (inF(f, a)) { buy += flow[a].buy; sell += flow[a].sell; }
-      views[f].series.push({ time: d, val, cost, o, hi, lo, realized, buy, sell, inc, fx: lastFx });
+      views[f].series.push({ time: d, val, cost, o, hi, lo, realized, buy, sell, inc, cashK, pr, fx: lastFx });
       for (const c in agg) (views[f].avg[c] ??= []).push(agg[c].q > 0 ? { time: d, value: agg[c].costN / agg[c].q } : { time: d });
     }
     for (const k in flow) delete flow[k];
@@ -586,6 +594,8 @@ function compute(raw) {
       realized: Object.values(pos).filter(p => p.code === a.code && inF(f, p.acct)).reduce((s, p) => s + p.realized, 0) }));
     v.realized = realized;
     v.income = Object.entries(income).filter(([a]) => inF(f, a)).reduce((s, [, x]) => s + x, 0);
+    v.principal = Object.entries(prin).filter(([a]) => inF(f, a)).reduce((s, [, x]) => s + x, 0);
+    v.cashK = Object.entries(cash).filter(([a]) => inF(f, a)).reduce((s, [, c]) => s + c.KRW + c.USD * (lastFx || 1), 0);
     v.val = v.holdings.reduce((s, h) => s + h.val, 0);
     v.cost = v.holdings.reduce((s, h) => s + h.costK, 0);
 
@@ -656,7 +666,7 @@ function toPeriodEnd(points, tf, dates) { // 선 데이터: 묶음별 마지막 
 
 // ───────── 화면 상태 ─────────
 let S, PIN = null;
-const view = { f: '전체', tfT: 'D', tfK: 'D', mode: 'candle', tmode: 'pnl', rgT: 'ALL', rgK: 'ALL', bench: {}, holdTab: 'hold', kstart: 'mine', avg: true, marks: true, pie: 'code', showClosed: false, code: null };
+const view = { f: '전체', tfT: 'D', tfK: 'D', mode: 'candle', tmode: 'acct', rgT: 'ALL', rgK: 'ALL', bench: {}, holdTab: 'hold', kstart: 'mine', avg: true, marks: true, pie: 'code', showClosed: false, code: null };
 try { Object.assign(view, JSON.parse(localStorage.getItem('folioView') || '{}'), { code: null, showClosed: false }); } catch (e) {}
 const saveView = () => { try { const { code, showClosed, ...rest } = view; localStorage.setItem('folioView', JSON.stringify(rest)); } catch (e) {} };
 
@@ -799,11 +809,15 @@ function renderAll() {
   const pl = v.val - v.cost;
   $('asof').textContent = S.asof + ' 종가 기준 주식 평가액';
   $('total').textContent = won(v.val) + '원';
-  $('pl').textContent = signed(pl) + '원 (' + pct(v.cost ? pl / v.cost : 0) + ')';
-  $('pl').className = 'pl ' + cls(pl);
+  // 계좌 손익 = 총자산(주식+예수금) − 넣은 돈. 증권사 앱 '투자수익'과 같은 방식 (수수료·환전·환차까지 전부 포함)
+  const acctPl = v.val + v.cashK - v.principal, stockPl = pl + v.realized + (v.income || 0);
+  $('pl').innerHTML = `계좌 손익 <b>${signed(acctPl)}원</b> <span class="plr">(넣은 돈 대비 ${pct(v.principal ? acctPl / v.principal : 0)})</span>`;
+  $('pl').className = 'pl ' + cls(acctPl);
+  $('upl').innerHTML = `<span class="${cls(pl)}">${signed(pl)}원</span>`;
+  $('leak').innerHTML = `<span class="${cls(acctPl - stockPl)}">${signed(acctPl - stockPl)}원</span>`;
+  $('prinV').textContent = won(v.principal) + '원';
   $('cost').textContent = won(v.cost) + '원';
   $('realized').innerHTML = `<span class="${cls(v.realized)}">${signed(v.realized)}원</span>`;
-  $('count').textContent = v.holdings.length + '개';
   $('income').innerHTML = `<span class="${cls(v.income)}">${signed(v.income || 0)}원</span>`;
 
   renderTotal();
@@ -827,19 +841,21 @@ function renderAll() {
 }
 
 function renderTotal() {
-  seg($('tmodeSeg'), [['pnl', '손익 캔들'], ['line', '평가액 선']], view.tmode, m => { view.tmode = m; saveView(); renderTotal(); });
+  seg($('tmodeSeg'), [['acct', '계좌 손익'], ['pnl', '주식 손익'], ['line', '평가액']], view.tmode, m => { view.tmode = m; saveView(); renderTotal(); });
   seg($('tfTotal'), TF, view.tfT, tf => { view.tfT = tf; saveView(); renderTotal(); });
   seg($('rgTotal'), RANGES.map(r => [r[0], r[1]]), view.rgT, k => { view.rgT = k; saveView(); renderTotal(); });
   const ser = S.views[view.f].series.filter(s => s.val > 0 || s.cost > 0 || s.realized);
   const dates = ser.map(s => s.time);
-  const isPnl = view.tmode === 'pnl';
+  const isAcct = view.tmode === 'acct';
+  const isPnl = view.tmode === 'pnl' || isAcct; // 둘 다 캔들
   sPnl.applyOptions({ visible: isPnl });
   sVal.applyOptions({ visible: !isPnl });
   sCost.applyOptions({ visible: !isPnl });
 
   // 누적 손익 = 평가손익 + 실현손익 → 매수·매도로는 안 변하고 주가로만 움직임
   const pnl = ser.map(s => {
-    const base = s.realized - s.cost + (s.inc || 0);
+    // 주식 손익: 평가손익+실현+배당 / 계좌 손익: 평가액+예수금−넣은 돈
+    const base = isAcct ? (s.cashK || 0) - (s.pr || 0) : s.realized - s.cost + (s.inc || 0);
     return { time: s.time, open: s.o + base, high: s.hi + base, low: s.lo + base, close: s.val + base };
   });
   sPnl.setData(toCandles(pnl, view.tfT));
@@ -849,7 +865,7 @@ function renderTotal() {
   const bench = S.views[view.f].bench || {};
   const benchNow = {};
   BENCH.forEach(([code]) => {
-    const on = isPnl && !!view.bench[code] && !!bench[code];
+    const on = view.tmode === 'pnl' && !!view.bench[code] && !!bench[code]; // 지수 비교는 주식 손익과 같은 기준이라 거기서만
     benchSeries[code].applyOptions({ visible: on });
     const pts = (bench[code] || []).filter(p => p.time >= (dates[0] || ''));
     benchSeries[code].setData(on ? toPeriodEnd(pts, view.tfT, dates) : []);
@@ -862,11 +878,13 @@ function renderTotal() {
   if (todayMode) renderToday(); else applyRange(totalChart, dates[dates.length - 1], view.rgT);
 
   const lastS = ser[ser.length - 1];
-  const nowPnl = lastS ? lastS.val - lastS.cost + lastS.realized + (lastS.inc || 0) : 0;
+  const nowPnl = !lastS ? 0 : isAcct ? lastS.val + (lastS.cashK || 0) - (lastS.pr || 0) : lastS.val - lastS.cost + lastS.realized + (lastS.inc || 0);
   $('totalInfo').innerHTML = isPnl
-    ? `누적 손익 <span class="${cls(nowPnl)}">${signed(nowPnl)}원</span> (평가손익 + 실현손익 + 배당·이자, 돈을 넣고 빼도 안 변함)`
+    ? isAcct
+      ? `계좌 손익 <span class="${cls(nowPnl)}">${signed(nowPnl)}원</span> (총자산 − 넣은 돈. 수수료·환전·환차까지 전부 포함, 증권사 '투자수익'과 같은 방식)`
+      : `주식 손익 <span class="${cls(nowPnl)}">${signed(nowPnl)}원</span> (평가손익 + 실현손익 + 배당·이자, 비용 제외한 주식 성적)`
     : '평가액과 매입금액의 간격이 평가손익';
-  $('totalLegend').innerHTML = isPnl
+  $('totalLegend').innerHTML = isAcct ? '<span>캔들: 계좌 손익 (지수 비교는 주식 손익 모드에서)</span>' : isPnl
     ? '<span class="lg">캔들: 누적 손익</span><span class="lg" style="margin-left:6px">같은 날 같은 금액으로 지수를 샀다면</span><span class="sm">지수 비교</span>'
       + BENCH.filter(([c]) => bench[c]).map(([code, name, , color]) => `<button type="button" class="tg bench" data-b="${code}" aria-pressed="${!!view.bench[code]}">`
         + `<i style="background:${color}"></i>${name}${view.bench[code] && benchNow[code] != null ? ` <span class="${cls(benchNow[code])}">${signed(benchNow[code])}</span>` : ''}</button>`).join('')
