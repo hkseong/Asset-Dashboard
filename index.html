@@ -13,6 +13,9 @@
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png?v=3">
 <link rel="icon" type="image/png" sizes="512x512" href="icon.png?v=3">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=3">
+<link rel="manifest" href="manifest.json?v=3">
+<meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121418" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <style>
@@ -36,7 +39,7 @@
   }
   main { max-width: 1000px; margin: 0 auto; padding: 16px 16px 96px; }
   /* 아이폰 홈 화면 앱으로 열면 상태바 아래 블러(리퀴드 글라스)가 첫 줄을 가려서 조금 내림 */
-  @media (display-mode: standalone) { main { padding-top: 34px; } }
+  html.standalone main { padding-top: 46px; }
   section { background: var(--panel); border-radius: 14px; padding: 18px; margin-bottom: 14px; min-width: 0; }
   .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .head .tools { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -340,6 +343,7 @@
 </dialog>
 
 <script>
+if (navigator.standalone || matchMedia('(display-mode: standalone)').matches) document.documentElement.classList.add('standalone');
 const APP_NAME = 'Portfolio'; // 사이트 이름 (여기만 바꾸면 됨, <title>도 같이)
 document.querySelectorAll('.appname').forEach(e => e.textContent = APP_NAME);
 
@@ -985,7 +989,9 @@ function renderChips() {
   $('chipsClosed').innerHTML = v.closed.map(chip).join('');
   document.querySelectorAll('#chipsHeld button, #chipsClosed button').forEach(b => b.onclick = () => showTicker(b.dataset.code));
   const on = document.querySelector('#chipsHeld [aria-pressed="true"], #chipsClosed [aria-pressed="true"]');
-  if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  // 선택된 칩이 보이게 칩 줄만 가로로 스크롤 (scrollIntoView는 페이지까지 세로로 움직여서 안 씀)
+  if (on) { const row = on.parentElement; const l = on.offsetLeft - row.offsetLeft, r = l + on.offsetWidth;
+    if (l < row.scrollLeft) row.scrollLeft = l - 8; else if (r > row.scrollLeft + row.clientWidth) row.scrollLeft = r - row.clientWidth + 8; }
 }
 
 function showTicker(code) {
