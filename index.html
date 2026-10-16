@@ -108,7 +108,9 @@
   .icon-btn { border: 0; background: none; color: var(--sub); cursor: pointer; font: inherit; font-size: 13px; padding: 2px 4px; }
 
   /* 보유 종목: 도넛 + 표 */
-  .holdgrid { display: grid; grid-template-columns: 260px 1fr; gap: 18px; align-items: start; }
+  .holdgrid { display: grid; grid-template-columns: 220px 1fr; gap: 16px; align-items: start; }
+  #holdWrap table { font-size: 13.5px; }
+  #holdWrap th, #holdWrap td { padding-left: 6px; padding-right: 6px; } /* 전일 대비 칸이 들어가도 옆으로 안 넘치게 */
   @media (max-width: 720px) { .holdgrid { grid-template-columns: 1fr; } }
   .donut { display: flex; flex-direction: column; align-items: center; gap: 12px; }
   .donut { position: relative; }
@@ -177,6 +179,8 @@
     .mcards b { font-size: 17px; }
     .mtable { display: none; }
   }
+  td.day { white-space: nowrap; }
+  td.day small { display: block; margin: 1px 0 0; font-size: 11px; color: inherit; opacity: .85; }
   th[data-k] { cursor: pointer; user-select: none; white-space: nowrap; }
   th[data-k]:hover { color: var(--ink); }
   th .arr { margin-left: 3px; font-size: 10px; opacity: .35; }
@@ -358,7 +362,7 @@
         <select class="msort" id="sortHM" aria-label="보유 종목 정렬"></select>
         <div class="tablewrap">
           <table>
-            <thead><tr id="holdHead"><th>종목</th><th data-k="q">수량</th><th data-k="avg">평단</th><th data-k="price">현재가</th><th data-k="val">평가액</th><th data-k="pl">손익</th><th data-k="r">수익률</th></tr></thead>
+            <thead><tr id="holdHead"><th>종목</th><th data-k="q">수량</th><th data-k="avg">평단</th><th data-k="price">현재가</th><th data-k="day">전일 대비</th><th data-k="val">평가액</th><th data-k="pl">손익</th><th data-k="r">수익률</th></tr></thead>
             <tbody id="rows"></tbody>
           </table>
         </div>
@@ -480,7 +484,7 @@
 <script>
 // 앱을 열면 항상 맨 위부터 (이전 스크롤 위치 복원 끔)
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-const BUILD = '2026.10.16 22:37'; // 화면 하단 버전 표시 + 새 버전 감지용
+const BUILD = '2026.10.16 22:49'; // 화면 하단 버전 표시 + 새 버전 감지용
 const APP_NAME = 'Portfolio'; // 사이트 이름 (여기만 바꾸면 됨, <title>도 같이)
 document.querySelectorAll('.appname').forEach(e => e.textContent = APP_NAME);
 
@@ -1207,13 +1211,24 @@ function renderPage() {
   if (month) renderMonthly();
 }
 
+// 전일 대비: 보유 수량 × (현재가×현재 환율 − 전일 종가×전일 환율). 맨 위 '오늘'과 같은 계산이라 합계가 일치
+function dayMove(h) {
+  const q = quote(h.code); if (!q) return null;
+  const prev = prevClose(h.code, q.date, q.prev); if (!prev) return null;
+  const usd = h.ccy === 'USD', fq = quote(FX);
+  const fxNow = usd ? (fq ? fq.price : S.fx) : 1, fxPrev = usd ? (fq ? prevClose(FX, fq.date, fq.prev) : S.fx) : 1;
+  const base = h.q * prev * fxPrev, d = h.q * q.price * fxNow - base;
+  return { d, base, r: base ? d / base : 0 };
+}
+const dayCell = m => m ? `<td class="day ${cls(m.d)}">${signed(m.d)}<small>${pct(m.r)}</small></td>` : '<td class="day" style="color:var(--sub)">-</td>';
+
 // ───────── 정렬 ─────────
 // 칸 제목 클릭: ▼(큰 순) → ▲(작은 순) → 기본순. 달러 종목의 평단·현재가는 원화로 환산해서 비교
 const fxOf = c => c === 'USD' ? (S.fx || 1) : 1;
-const HOLD_KEY = { q: h => h.q, avg: h => h.avgN * fxOf(h.ccy), price: h => h.price * fxOf(h.ccy), val: h => h.val, pl: h => h.pl, r: h => h.r };
+const HOLD_KEY = { q: h => h.q, avg: h => h.avgN * fxOf(h.ccy), price: h => h.price * fxOf(h.ccy), day: h => dayMove(h)?.r ?? -Infinity, val: h => h.val, pl: h => h.pl, r: h => h.r };
 const REAL_KEY = { sell: a => a.sellK, cost: a => a.soldCost, realized: a => a.realized, r: a => a.r,
   days: a => (new Date(a.lastSell) - new Date(a.first)) / 864e5 };
-const HOLD_LABEL = { q: '수량', avg: '평단', price: '현재가', val: '평가액', pl: '손익', r: '수익률' };
+const HOLD_LABEL = { q: '수량', avg: '평단', price: '현재가', day: '전일 대비', val: '평가액', pl: '손익', r: '수익률' };
 const REAL_LABEL = { sell: '매도금액', cost: '판 수량의 원가', realized: '실현손익', r: '수익률', days: '보유 기간' };
 function sortBy(list, st, KEY, dflt) {
   const f = st && KEY[st.k];
@@ -1258,6 +1273,9 @@ function renderTable() {
   groups.forEach(g => {
     g.val = g.items.reduce((s, x) => s + x.val, 0); g.cost = g.items.reduce((s, x) => s + x.costK, 0);
     g.pl = g.val - g.cost; g.r = g.cost ? g.pl / g.cost : 0; g.items = order(g.items);
+    const mv = g.items.map(dayMove).filter(Boolean);  // 묶음 전일 대비 합계
+    g.day = mv.length ? { d: mv.reduce((s, x) => s + x.d, 0), base: mv.reduce((s, x) => s + x.base, 0) } : null;
+    if (g.day) g.day.r = g.day.base ? g.day.d / g.day.base : 0;
   });
   groups.sort((a, b) => b.val - a.val);
   const showAcct = view.f === '전체' && view.pie !== 'acct'; // 계좌로 묶었으면 이름 옆 계좌 표시는 생략
@@ -1265,13 +1283,13 @@ function renderTable() {
   const row = h => `
     <tr data-code="${esc(h.code)}" title="${esc(S.tick[h.code]?.name || h.code)}">
       <td>${esc(label(h.code))}${showAcct ? `<small>${[...h.accts].join('·')}</small>` : ''}</td>
-      <td>${qty(h.q)}</td><td>${money(h.avgN, h.ccy)}</td><td>${money(h.price, h.ccy)}</td>
+      <td>${qty(h.q)}</td><td>${money(h.avgN, h.ccy)}</td><td>${money(h.price, h.ccy)}</td>${dayCell(dayMove(h))}
       <td>${won(h.val)}</td><td class="${cls(h.pl)}">${signed(h.pl)}</td><td class="${cls(h.r)}">${pct(h.r)}${fxSplit(h)}</td>
     </tr>`;
-  const grpRow = g => g.name ? `<tr class="grp"><td>${esc(g.name)} <small>${g.items.length}종목</small></td><td></td><td></td><td></td>
+  const grpRow = g => g.name ? `<tr class="grp"><td>${esc(g.name)} <small>${g.items.length}종목</small></td><td></td><td></td><td></td>${dayCell(g.day)}
       <td>${won(g.val)}</td><td class="${cls(g.pl)}">${signed(g.pl)}</td><td class="${cls(g.r)}">${pct(g.r)}</td></tr>` : '';
   $('rows').innerHTML = groups.map(g => grpRow(g) + g.items.map(row).join('')).join('')
-    || '<tr><td colspan="7" style="text-align:center;color:var(--sub)">보유 종목이 없습니다</td></tr>';
+    || '<tr><td colspan="8" style="text-align:center;color:var(--sub)">보유 종목이 없습니다</td></tr>';
 
   // 폰: 카드형 줄
   const card = h => {
@@ -1281,7 +1299,7 @@ function renderTable() {
     return `<div class="mrow" data-code="${esc(h.code)}">
       <div class="l"><div class="nm">${esc(label(h.code))}${showAcct ? `<small>${[...h.accts].join('·')}</small>` : ''}</div>
         <div class="sub">${qty(h.q)}주 · 평단 ${money(h.avgN, h.ccy)}</div><div class="sub">현재가 ${money(h.price, h.ccy)}</div></div>
-      <div class="r"><div class="v">${won(h.val)}원</div><div class="sub ${cls(h.pl)}">${signed(h.pl)} (${pct(h.r)})</div>${split}</div>
+      <div class="r"><div class="v">${won(h.val)}원</div><div class="sub ${cls(h.pl)}">${signed(h.pl)} (${pct(h.r)})</div>${split}${(m => m ? `<div class="sub">오늘 <span class="${cls(m.d)}">${signed(m.d)} (${pct(m.r)})</span></div>` : '')(dayMove(h))}</div>
     </div>`;
   };
   $('rowsM').innerHTML = groups.map(g => (g.name ? `<div class="mgrp"><span>${esc(g.name)}<small>${g.items.length}종목</small></span><span>${won(g.val)}원 <span class="${cls(g.r)}">${pct(g.r)}</span></span></div>` : '')
