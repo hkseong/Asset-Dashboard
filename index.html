@@ -484,7 +484,7 @@
 <script>
 // 앱을 열면 항상 맨 위부터 (이전 스크롤 위치 복원 끔)
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-const BUILD = '2026.10.16 22:49'; // 화면 하단 버전 표시 + 새 버전 감지용
+const BUILD = '2026.11.20 21:05'; // 화면 하단 버전 표시 + 새 버전 감지용
 const APP_NAME = 'Portfolio'; // 사이트 이름 (여기만 바꾸면 됨, <title>도 같이)
 document.querySelectorAll('.appname').forEach(e => e.textContent = APP_NAME);
 
@@ -501,6 +501,24 @@ const qty = q => Number.isInteger(q) ? String(q) : q.toFixed(6).replace(/0+$/, '
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const EPS = 1e-9;
 const FX = 'USDKRW';
+// SOXX는 미국장 2026-11-05 개장부터 3대 1 분할 단위로 거래.
+const SOXX_SPLIT = { date: '2026-11-05', ratio: 3, previousClose: 450.42 };
+
+// 분할 소급 조정된 일봉도 거래 원장에 맞춰 당시 거래 단위로 되돌린다.
+function soxxTradingPrices(prices) {
+  const { date, ratio, previousClose } = SOXX_SPLIT;
+  const priorDay = Object.keys(prices).filter(d => d >= '2026-10-29' && d < date && prices[d][3] > 0).sort().pop();
+  if (!priorDay) return prices;
+  const close = prices[priorDay][3];
+  const adjustedClose = previousClose / ratio;
+  if (Math.abs(close - previousClose) <= Math.abs(close - adjustedClose)) return prices;
+  return Object.fromEntries(Object.entries(prices).map(([d, bar]) =>
+    [d, d < date ? bar.map(price => price * ratio) : bar]));
+}
+
+function splitPriceDivisor(code, priceDate, basisDate) {
+  return code === 'SOXX' && priceDate < SOXX_SPLIT.date && basisDate >= SOXX_SPLIT.date ? SOXX_SPLIT.ratio : 1;
+}
 // 벤치마크 지수: [코드, 이름, 통화, 선 색]
 const BENCH = [['IDX_SPX', 'S&P500', 'USD', '#14a3a3'], ['IDX_NDX', '나스닥100', 'USD', '#8a5cf0'], ['IDX_KOSPI', '코스피', 'KRW', '#e8850c']];
 
@@ -531,6 +549,7 @@ function compute(raw) {
 
   const px = {};
   raw.prices.forEach(r => { (px[String(r[1])] ??= {})[String(r[0]).slice(0, 10)] = [+r[2], +r[3], +r[4], +r[5]]; });
+  if (px.SOXX) px.SOXX = soxxTradingPrices(px.SOXX);
   const start = trades[0].d;
   const cal = [...new Set(raw.prices.map(r => String(r[0]).slice(0, 10)))].filter(d => d >= start).sort();
 
@@ -616,9 +635,20 @@ function compute(raw) {
   };
 
   let i = 0;
+  let splitApplied = false;
+  const applyThrough = d => {
+    if (!splitApplied && d >= SOXX_SPLIT.date) {
+      while (i < trades.length && trades[i].d < SOXX_SPLIT.date) apply(trades[i++]);
+      // 총원가와 예수금은 그대로 두고 개장 전 보유 수량만 조정한다.
+      for (const p of Object.values(pos)) if (p.code === 'SOXX') p.q *= SOXX_SPLIT.ratio;
+      if (last.SOXX != null) last.SOXX /= SOXX_SPLIT.ratio;
+      splitApplied = true;
+    }
+    while (i < trades.length && trades[i].d <= d) apply(trades[i++]);
+  };
   for (const d of cal) {
     fxOn(d);
-    while (i < trades.length && trades[i].d <= d) apply(trades[i++]);
+    applyThrough(d);
     for (const c in px) if (c !== FX && px[c][d]) last[c] = px[c][d][3];
     for (const f of filters) {
       let val = 0, cost = 0, o = 0, hi = 0, lo = 0, realized = 0, buy = 0, sell = 0;
@@ -645,7 +675,7 @@ function compute(raw) {
     }
     for (const k in flow) delete flow[k];
   }
-  while (i < trades.length) apply(trades[i++]); // 시세 마지막 날 이후 거래 반영
+  if (i < trades.length) applyThrough(trades[trades.length - 1].d); // 시세 마지막 날 이후 거래 반영
 
   // 필터별 최종 보유 현황
   const asof = cal[cal.length - 1];
@@ -1035,7 +1065,8 @@ async function loadHistory(code, ccy) {
   const res = await post({ pin: PIN, action: 'history', code, ccy });
   PXLOADING[code] = false;
   if (res.ok && res.rows && res.rows.length) {
-    PXFULL[code] = Object.fromEntries(res.rows.map(r => [r[0], [+r[1], +r[2], +r[3], +r[4]]]));
+    const prices = Object.fromEntries(res.rows.map(r => [r[0], [+r[1], +r[2], +r[3], +r[4]]]));
+    PXFULL[code] = code === 'SOXX' ? soxxTradingPrices(prices) : prices;
     if (view.code === code && view.kstart === 'full') showTicker(code);
   } else {
     const el = $('histLoading'); if (el) el.textContent = ' · 상장 이후 시세를 받지 못해 저장된 최근 2년치만 표시 중 (' + (res.error || 'Apps Script 새 버전 배포 확인') + ')';
@@ -1405,7 +1436,10 @@ function showTicker(code) {
   const days = Object.keys(src).sort();
   const from = full ? days[0] : (days[Math.max(0, days.findIndex(d => d >= firstTrade) - 15)] || days[0]);
   const shown = days.filter(d => d >= from);
-  const daily = shown.map(d => { const [o, hi, l, cl] = src[d]; return { time: d, open: o, high: hi, low: l, close: cl }; });
+  const daily = shown.map(d => {
+    const [o, hi, l, cl] = src[d], divisor = splitPriceDivisor(code, d, S.asof);
+    return { time: d, open: o / divisor, high: hi / divisor, low: l / divisor, close: cl / divisor };
+  });
   const bars = toCandles(daily, view.tfK);
   const isCandle = view.mode === 'candle';
   candle.applyOptions({ visible: isCandle });
@@ -1415,7 +1449,9 @@ function showTicker(code) {
 
   const key = view.tfK === 'D' ? (d => d) : groupKeys(shown, view.tfK);
   avgSeries.applyOptions({ visible: view.avg });
-  avgSeries.setData(toPeriodEnd((v.avg[code] || []).filter(p => p.time >= from && S.px[code]?.[p.time]), view.tfK, shown));
+  const avg = (v.avg[code] || []).filter(p => p.time >= from && S.px[code]?.[p.time])
+    .map(p => p.value == null ? p : { ...p, value: p.value / splitPriceDivisor(code, p.time, S.asof) });
+  avgSeries.setData(toPeriodEnd(avg, view.tfK, shown));
 
   const agg = {};
   Object.entries(mk).forEach(([d, m]) => {
@@ -1881,9 +1917,13 @@ function withLive(raw) {
 const quote = code => LIVE && LIVE.find(q => q.ok && q.code === code);
 // 전일 종가: 시트에 저장된 공식 일봉 종가 우선 (5분봉 마지막 값은 장 마감 동시호가 전이라 살짝 다름)
 function prevClose(code, date, fallback) {
-  let best = null, bd = '';
-  for (const r of RAW.prices) if (String(r[1]) === code) { const d = String(r[0]).slice(0, 10); if (d < date && d > bd) { bd = d; best = +r[5]; } }
-  return best ?? fallback;
+  let previousDay = '';
+  for (const r of RAW.prices) if (String(r[1]) === code) {
+    const d = String(r[0]).slice(0, 10);
+    if (d < date && d > previousDay) previousDay = d;
+  }
+  const close = S.px[code]?.[previousDay]?.[3];
+  return close == null ? fallback : close / splitPriceDivisor(code, previousDay, date);
 }
 
 async function liveFetch(force) {
